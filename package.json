@@ -1,0 +1,14 @@
+{
+  "name": "studymaster-ai",
+  "version": "2.0.0",
+  "private": true,
+  "description": "StudyMaster AI: cuestionarios con IA a partir de tus apuntes (demo local, cuenta de Claude o API key de Gemini, Llama o Grok).",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs . dist-claude",
+    "serve": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

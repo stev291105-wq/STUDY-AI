@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /src/
+Sitemap: https://stev291105-wq.github.io/STUDY-AI/sitemap.xml

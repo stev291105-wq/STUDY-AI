@@ -1,0 +1,4 @@
+node_modules/
+dist-claude/
+out.css
+app.check.js
