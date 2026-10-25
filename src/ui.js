@@ -166,7 +166,7 @@ const PERM_TEXT = { granted: "concedido", prompt: "pendiente de tu permiso", den
 
 function ClaudeGate({ caps, onEnter, notice }) {
   const muted = { color: "rgb(var(--muted))" };
-  const connected = !!(caps.sample || caps.me);
+  const connected = !!(caps.sample || caps.me || CLAUDE_FLAT);
   const who = caps.me?.name || caps.me?.email || "";
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -948,7 +948,7 @@ function App() {
   const enterClaude = () => {
     const a = caps.db && caps.uid ? { mode: "account", nick: caps.me?.name || "" } : { mode: "guest", nick: caps.me?.name || "" };
     setLoginNotice(null); setEngine("claude"); pref.set("smai:engine", "claude"); setAuth(a);
-    if (!caps.sample) toast("claude.ai no ofrece la IA de tu cuenta a esta página: se usa el modo demo. Mira la tarjeta «Cuenta de Claude» para conectarla.", "butter");
+    if (!caps.sample && !CLAUDE_FLAT) toast("claude.ai no ofrece la IA de tu cuenta a esta página: se usa el modo demo. Mira la tarjeta «Cuenta de Claude» para conectarla.", "butter");
   };
   useEffect(() => {
     if (!IN_CLAUDE || !caps.ready || auth || autoEntered.current) return;
@@ -980,16 +980,16 @@ function App() {
     })();
   }, [store]);
 
-  const claudeOk = IN_CLAUDE && !!caps.sample && !claudeBlocked;
+  const claudeOk = IN_CLAUDE && (!!caps.sample || CLAUDE_FLAT) && !claudeBlocked;
   // Diagnóstico visible cuando la IA de Claude no está disponible: qué respondió el visor de claude.ai.
   const claudeDiag = !IN_CLAUDE ? "" : claudeBlocked ? "tu cuenta rechazó el uso de la IA en esta página"
-    : !caps.perms ? "el visor de claude.ai no respondió a la página"
-    : `IA de Claude: ${PERM_TEXT[caps.perm?.sample || "unavailable"]}`;
+    : (!caps.perms ? "el visor de claude.ai no respondió a la página" : `IA de Claude: ${PERM_TEXT[caps.perm?.sample || "unavailable"]}`)
+      + ` · funciones que ofrece claude.ai: ${claudeApiNames().join(", ") || "ninguna"}`;
   const apiModels = api.models?.[api.provider] || {};
   const apiReady = !IN_CLAUDE && !!api.key.trim() && !!apiModels.text;
   const geminiReady = !IN_CLAUDE && !!gem.key && !!gem.model;
   const activeEngine = engine === "gemini" && geminiReady ? "gemini" : engine === "claude" && claudeOk ? "claude" : engine === "api" && apiReady ? "api" : "demo";
-  const ai = useMemo(() => (activeEngine === "claude" ? claudeAccountAI(caps.sample, caps.imgMax)
+  const ai = useMemo(() => (activeEngine === "claude" ? (caps.sample ? claudeAccountAI(caps.sample, caps.imgMax) : claudeCompleteAI())
     : activeEngine === "gemini" ? apiKeyAI({ provider: "gemini", label: "Gemini", key: gem.key, models: { text: gem.model, vision: gem.model } })
     : activeEngine === "api" ? apiKeyAI({ provider: api.provider, key: api.key.trim(), models: apiModels }) : null),
     [activeEngine, caps.sample, caps.imgMax, gem.key, gem.model, api.provider, api.key, apiModels.text, apiModels.vision]);

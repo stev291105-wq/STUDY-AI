@@ -28,6 +28,29 @@ const blobToBase64 = (blob) => new Promise((res, rej) => {
 });
 
 // ------------------------------------------------------------------ cuenta de Claude (solo dentro de claude.ai)
+// Vía directa de los artefactos de claude.ai (window.claude.complete): responde con la cuenta de quien abre la página.
+const CLAUDE_FLAT = IN_CLAUDE && typeof window.claude.complete === "function";
+// Qué ofrece el visor a la página (para el diagnóstico de la tarjeta «Cuenta de Claude»).
+const claudeApiNames = () => {
+  if (!IN_CLAUDE) return [];
+  const names = new Set();
+  try { for (let o = window.claude; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) Object.getOwnPropertyNames(o).forEach((n) => n !== "constructor" && names.add(n)); } catch {}
+  return [...names];
+};
+function claudeCompleteAI() {
+  return {
+    kind: "claude", label: "Claude", budget: 60000, perCall: 10, maxImages: 0,
+    async callJSON(prompt) {
+      let text;
+      try { text = await window.claude.complete(prompt + "\n\nResponde únicamente con el JSON pedido, sin texto antes ni después."); }
+      catch (e) { throw { code: "claude_flat", message: "Claude no pudo responder desde tu cuenta: " + (e?.message || String(e)).slice(0, 200) }; }
+      const data = parseLooseJSON(typeof text === "string" ? text : text?.text || "");
+      if (!data) throw { code: "claude_flat", message: "Claude respondió en un formato inesperado. Vuelve a intentarlo." };
+      return data;
+    },
+  };
+}
+
 function claudeAccountAI(sample, imgMax) {
   return {
     kind: "claude", label: "Claude", budget: 150000, perCall: 10, maxImages: imgMax || 0,
