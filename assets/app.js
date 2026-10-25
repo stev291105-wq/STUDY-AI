@@ -1484,10 +1484,21 @@ function ClaudeGate({ caps, onEnter, notice }) {
   const muted = { color: "rgb(var(--muted))" };
   const connected = !!(caps.sample || caps.me);
   const who = caps.me?.name || caps.me?.email || "";
-  // Volver a cargar la página de Claude para que el visor recoja la sesión recién iniciada.
-  const reloadTop = () => { try { window.top.location.href = LINKS.claudeApp; } catch { location.reload(); } };
+  // sessionStorage del marco: recuerda que el visitante fue a iniciar sesión y cuántas veces se recargó ya.
+  const ss = { get: (k) => { try { return sessionStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} }, del: (k) => { try { sessionStorage.removeItem(k); } catch {} } };
+  const tries = +(ss.get("smai:claude-reloads") || 0);
+  // Recargar StudyMaster (el marco, no la pestaña) para que el visor le entregue la sesión recién iniciada.
+  const recheck = () => { ss.del("smai:await-login"); ss.set("smai:claude-reloads", String(tries + 1)); location.reload(); };
+  // Al volver a esta pestaña después de iniciar sesión en otra, se comprueba sola (una vez).
+  useEffect(() => {
+    if (!caps.ready || connected) { if (connected) ss.del("smai:claude-reloads"); return; }
+    const back = () => { if (document.visibilityState === "visible" && ss.get("smai:await-login")) recheck(); };
+    document.addEventListener("visibilitychange", back);
+    window.addEventListener("focus", back);
+    return () => { document.removeEventListener("visibilitychange", back); window.removeEventListener("focus", back); };
+  }, [caps.ready, connected]);
   return html`<div className="landing landing-access grid place-items-center px-4 py-10">
-    <div className="w-full max-w-[460px] flex flex-col gap-5">
+    <div className="w-full max-w-[480px] flex flex-col gap-5">
       <div className="flex justify-center"><span className="rounded-xl px-3 py-2" style=${{ background: "rgb(var(--surface))", color: "rgb(var(--ink))" }}><${Brand} /></span></div>
       <section className="access-card flex flex-col gap-4" aria-live="polite">
         ${!caps.ready ? html`<div className="flex flex-col items-center text-center gap-3 py-6">
@@ -1505,19 +1516,26 @@ function ClaudeGate({ caps, onEnter, notice }) {
             <button className="btn btn-primary w-full !py-4 !text-lg" onClick=${onEnter}>Entrar a estudiar <${Icon} name="arrow" /></button>`
         : html`<div>
               <div className="eyebrow">Cuenta de Claude</div>
-              <h1 className="text-[1.6rem] leading-tight font-extrabold mt-1">Inicia sesión con tu cuenta de Claude</h1>
+              <h1 className="text-[1.6rem] leading-tight font-extrabold mt-1">Conecta tu cuenta de Claude</h1>
               <p className="text-sm mt-1" style=${muted}>StudyMaster usa la IA de tu propia cuenta de Claude (sin API key) y guarda tu historial en tu cuenta.</p>
             </div>
             ${notice && html`<p className="rounded-xl p-3 text-sm tone-peach">${notice}</p>`}
+            ${tries > 0 && html`<div className="rounded-xl p-3 text-sm tone-butter flex flex-col gap-1" role="alert">
+              <b>Tu sesión todavía no llega a esta página.</b>
+              <span>Si ya iniciaste sesión en Claude, recarga la pestaña del navegador con <b>F5</b> (o el botón ⟳ del navegador). Al recargar, StudyMaster se abrirá directamente con tu cuenta.</span>
+            </div>`}
             <ol className="flex flex-col gap-3">
-              <${GuideStep} n="1"><b className="text-sm">Inicia sesión en Claude con tu correo o tu cuenta de Google</b>
-                <a className="btn btn-primary !py-2.5 self-start !whitespace-normal" href="https://claude.ai/login" target="_blank" rel="noopener"><${Icon} name="user" size=${16} /> Iniciar sesión en Claude ↗</a>
-                <span className="text-xs" style=${muted}>También puedes usar el botón «Iniciar sesión» de la barra de claude.ai.</span><//>
-              <${GuideStep} n="2"><b className="text-sm">Vuelve aquí y pulsa «Ya inicié sesión»</b>
-                <span className="text-sm" style=${muted}>StudyMaster se abrirá directamente con el modo Claude conectado.</span>
-                <button className="btn btn-ghost !py-2.5 self-start" onClick=${reloadTop}><${Icon} name="refresh" size=${16} /> Ya inicié sesión</button><//>
+              <${GuideStep} n="1"><b className="text-sm">Inicia sesión con el botón «Iniciar sesión» de la barra de claude.ai</b>
+                <span className="text-sm" style=${muted}>Está arriba a la derecha de esta página. Al terminar, claude.ai te devuelve aquí. Si ya ves tu foto o tu inicial arriba a la derecha, ya tienes la sesión iniciada: pasa al paso 2.</span>
+                <a className="btn btn-ghost !py-2 text-sm self-start !whitespace-normal" href="https://claude.ai/login" target="_blank" rel="noopener" onClick=${() => ss.set("smai:await-login", "1")}><${Icon} name="user" size=${16} /> O ábrelo en otra pestaña ↗</a><//>
+              <${GuideStep} n="2"><b className="text-sm">Conecta StudyMaster con tu sesión</b>
+                <button className="btn btn-primary !py-2.5 self-start" onClick=${recheck}><${Icon} name="refresh" size=${16} /> Ya inicié sesión: conectar</button>
+                <span className="text-xs" style=${muted}>Si iniciaste sesión en otra pestaña, al volver aquí StudyMaster se comprueba solo.</span><//>
             </ol>
-            <p className="text-sm border-t pt-3" style=${{ ...muted, borderColor: "rgb(var(--line-soft))" }}>¿Prefieres no usar Claude? <a className="font-bold underline" style=${{ color: "rgb(var(--accent))" }} href=${LINKS.web} target="_blank" rel="noopener">Abre la versión web ↗</a> para estudiar con Gemini o en modo demo.</p>`}
+            <div className="border-t pt-3 flex flex-col gap-2 text-sm" style=${{ ...muted, borderColor: "rgb(var(--line-soft))" }}>
+              <button className="font-bold underline self-start text-left" style=${{ color: "rgb(var(--accent))" }} onClick=${onEnter}>Entrar sin conectar Claude (modo demo, sin IA)</button>
+              <span>¿Prefieres Gemini? <a className="font-bold underline" style=${{ color: "rgb(var(--accent))" }} href=${LINKS.web} target="_blank" rel="noopener">Abre la versión web ↗</a></span>
+            </div>`}
       </section>
     </div>
   </div>`;
@@ -1773,6 +1791,7 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady
       title=${html`Cuenta de Claude <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
       desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude, sin API key: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "Inicia sesión en claude.ai para usar tu cuenta.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key: lee imágenes y letra a mano y redacta preguntas a medida."}
       tags=${IN_CLAUDE ? (claudeVision ? ["OCR + manuscritos", "preguntas IA", "validación IA"] : ["preguntas IA", "validación IA"]) : []}>
+      ${IN_CLAUDE && !claudeOk && html`<button className="btn btn-ghost !py-2 text-sm mt-2 self-start" onClick=${(e) => { e.stopPropagation(); location.reload(); }}><${Icon} name="refresh" size=${16} /> Ya inicié sesión: conectar</button>`}
       ${!IN_CLAUDE && html`<a className="btn btn-primary !py-2 text-sm mt-2 self-start !whitespace-normal" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Entrar con mi cuenta de Claude ↗</a>
         <span className="text-xs mt-1" style=${{ color: "rgb(var(--muted))" }}>Se abre StudyMaster en claude.ai: inicias sesión y entras directamente con el modo Claude conectado, sin escribir tu nombre.</span>`}
     <//>
