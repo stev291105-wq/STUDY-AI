@@ -1797,7 +1797,7 @@ function GeminiPanel({ gem, setGem }) {
   </div>`;
 }
 
-function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady, gem, setGem, geminiReady }) {
+function ModePanel({ mode, onMode, claudeOk, claudeVision, claudeDiag, api, setApi, apiReady, gem, setGem, geminiReady }) {
   return html`<section className="card p-5 flex flex-col gap-3">
     <div className="section-head"><${IconTile} name="spark" tone="lav" size=${18} className="!w-9 !h-9" /><div><div className="eyebrow">Modo de uso</div><h3 className="text-lg font-bold leading-tight">¿Quién lee y pregunta?</h3></div></div>
     <${ModeCard} id="gemini" num="1" active=${mode === "gemini"} available=${!IN_CLAUDE} onPick=${onMode}
@@ -1808,10 +1808,11 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady
       ${!IN_CLAUDE && mode === "gemini" && html`<${GeminiPanel} gem=${gem} setGem=${setGem} />`}
       ${!IN_CLAUDE && mode === "gemini" && !geminiReady && html`<p className="text-xs font-bold mt-1 text-peach">Mientras conectas tu cuenta se usa el modo demo.</p>`}
     <//>
-    <${ModeCard} id="claude" num="2" active=${mode === "claude"} available=${claudeOk} onPick=${onMode}
+    <${ModeCard} id="claude" num="2" active=${mode === "claude"} available=${IN_CLAUDE ? claudeOk : true} onPick=${IN_CLAUDE ? onMode : () => window.open(LINKS.claudeApp, "_blank", "noopener")}
       title=${html`Cuenta de Claude <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
       desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude, sin API key: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "claude.ai no ofrece la IA de tu cuenta a esta página. Pasa si no has iniciado sesión o si la abres con una cuenta distinta de la que publicó la página. Mientras tanto se usa el modo demo.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key: lee imágenes y letra a mano y redacta preguntas a medida."}
       tags=${IN_CLAUDE ? (claudeVision ? ["OCR + manuscritos", "preguntas IA", "validación IA"] : ["preguntas IA", "validación IA"]) : []}>
+      ${IN_CLAUDE && !claudeOk && claudeDiag && html`<span className="text-xs mt-1 rounded-lg px-2 py-1.5" style=${{ background: "rgb(var(--surface-2))", color: "rgb(var(--muted))" }}>Estado: ${claudeDiag}</span>`}
       ${IN_CLAUDE && !claudeOk && html`<button className="btn btn-primary !py-2 text-sm mt-2 self-start" onClick=${async (e) => {
         e.stopPropagation();
         // Pide a claude.ai el permiso para usar la cuenta y recarga StudyMaster con él.
@@ -2299,6 +2300,10 @@ function App() {
   }, [store]);
 
   const claudeOk = IN_CLAUDE && !!caps.sample && !claudeBlocked;
+  // Diagnóstico visible cuando la IA de Claude no está disponible: qué respondió el visor de claude.ai.
+  const claudeDiag = !IN_CLAUDE ? "" : claudeBlocked ? "tu cuenta rechazó el uso de la IA en esta página"
+    : !caps.perms ? "el visor de claude.ai no respondió a la página"
+    : `IA de Claude: ${PERM_TEXT[caps.perm?.sample || "unavailable"]}`;
   const apiModels = api.models?.[api.provider] || {};
   const apiReady = !IN_CLAUDE && !!api.key.trim() && !!apiModels.text;
   const geminiReady = !IN_CLAUDE && !!gem.key && !!gem.model;
@@ -2463,7 +2468,7 @@ function App() {
       <${Header} session=${current} step=${step} enabled=${enabled} onStep=${goStep} onMenu=${() => setSideOpen(true)} modeLabel=${engineLabel} modeKind=${activeEngine}
         onRename=${(t) => mutate((s) => ({ ...s, title: t, titleEdited: true }))} />
       ${step === "material" && html`<${MaterialStep} session=${current} onFiles=${addFiles} onSample=${addSample} onRemove=${removeFile} onToggle=${toggleFile} onNext=${() => goStep("config")}
-        modePanel=${html`<${ModePanel} mode=${engine} onMode=${(e) => { setEngine(e); pref.set("smai:engine", e); }} claudeOk=${claudeOk} claudeVision=${caps.imgMax > 0} api=${api} setApi=${setApi} apiReady=${apiReady} gem=${gem} setGem=${setGem} geminiReady=${geminiReady} />`} />`}
+        modePanel=${html`<${ModePanel} mode=${engine} onMode=${(e) => { setEngine(e); pref.set("smai:engine", e); }} claudeOk=${claudeOk} claudeVision=${caps.imgMax > 0} claudeDiag=${claudeDiag} api=${api} setApi=${setApi} apiReady=${apiReady} gem=${gem} setGem=${setGem} geminiReady=${geminiReady} />`} />`}
       ${step === "config" && html`<${ConfigStep} key=${current.id} session=${current} engineLabel=${engineLabel} generating=${generating} onGenerate=${generate} />`}
       ${step === "quiz" && quiz && html`<${QuizStep} quiz=${quiz} aiOk=${!!ai} onChoice=${onChoice} onSubmitText=${onSubmitText} onSelfEval=${onSelfEval} onAIValidate=${onAIValidate} onNext=${onNext} onExit=${() => goStep("config")} />`}
       ${step === "results" && quiz && html`<${ResultsStep} quiz=${quiz} generating=${generating} onRetry=${onRetry} onNewQuestions=${() => generate(quiz.config)} onUpload=${() => goStep("material")} />`}
