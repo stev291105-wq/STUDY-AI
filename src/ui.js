@@ -28,8 +28,8 @@ function Brand({ small }) {
 
 // ================================================================ acceso
 const USE_MODES = [
-  ["With Gemini · recomendado", "Entras con tu cuenta de Google y usas Gemini gratis", "sky"],
-  ["Cuenta de Claude", "Inicias sesión en Claude y usa tu propia cuenta", "lav"],
+  ["With Gemini · recomendado", "Entras con tu cuenta de Google y conectas tu key gratuita de Gemini", "sky"],
+  ["Cuenta de Claude · recomendado", "Inicias sesión en Claude y usa tu propia cuenta, sin API key", "lav"],
   ["Demo local", "Sin IA: todo ocurre en tu navegador", "butter"],
   ["Tu API key", "Gemini, Llama (Groq) o Grok (xAI)", "peach"],
 ];
@@ -84,7 +84,7 @@ function LoginScreen({ caps, onChoose, notice }) {
             </button>
             <p className="text-sm -mt-2" style=${muted}>Inicias sesión en Google AI Studio, creas tu key gratuita y la pegas: StudyMaster usará tu propio Gemini.</p>
             <a className="btn btn-ghost w-full justify-between py-4" href=${LINKS.claudeApp} target="_blank" rel="noopener">
-              <span className="flex items-center gap-3"><${Icon} name="user" /><span className="flex flex-col items-start"><span>Entrar con mi cuenta de Claude</span><span className="text-xs font-normal opacity-90">Se abre en claude.ai · inicias sesión con tu correo</span></span></span>
+              <span className="flex items-center gap-3"><${Icon} name="user" /><span className="flex flex-col items-start"><span>Entrar con mi cuenta de Claude <span className="pill tone-butter !text-[10px] ml-1">★ Recomendado</span></span><span className="text-xs font-normal opacity-90">Se abre en claude.ai · tu propia cuenta, sin API key</span></span></span>
               <${Icon} name="arrow" />
             </a>
             <p className="text-sm -mt-2" style=${muted}>StudyMaster se abre dentro de Claude: la IA funciona con tu propia cuenta de Claude y tu historial queda guardado en la nube.</p>`}
@@ -288,25 +288,31 @@ function GeminiPanel({ gem, setGem }) {
     setState({ checking: true });
     timer.current = setTimeout(async () => {
       try {
-        const model = await connectGemini(k);
+        const { model, models } = await connectGemini(k);
         if (my !== seq.current) return;
-        setGem({ key: k, remember, model });
+        setGem({ key: k, remember, model, models });
         setState({ ok: true });
       } catch (e) {
         if (my !== seq.current) return;
-        setGem({ key: "", remember, model: "" });
+        setGem({ key: "", remember, model: "", models: [] });
         setState({ ok: false, text: e?.code === "auth" ? AI_ERRORS.gemini_invalid : e?.code === "gemini_quota" ? AI_ERRORS.gemini_quota : e?.message || aiErrorText(e) });
       }
     }, 450);
   };
   useEffect(() => () => clearTimeout(timer.current), []);
+  // Una key guardada antes de existir el selector se revalida para elegir el Flash más reciente y cargar la lista de modelos.
+  useEffect(() => { if (gem.key && !gem.models?.length) validate(gem.key, gem.remember); }, []);
   const connected = state?.ok && gem.key;
   return html`<div className="flex flex-col gap-3 mt-2 pt-3 border-t" style=${{ borderColor: "rgb(var(--line-soft))", cursor: "default" }} onClick=${(e) => e.stopPropagation()} onKeyDown=${(e) => e.stopPropagation()}>
     ${connected
       ? html`<div className="rounded-xl p-3 tone-mint flex flex-col gap-2" role="status">
           <b>Conectado con tu cuenta de Google ✓</b>
-          <span className="text-sm">Modelo: <span className="mono">${gem.model}</span> · la key se guarda ${gem.remember ? "en este navegador" : "solo durante esta sesión"}.</span>
-          <button className="btn btn-ghost !py-1.5 text-sm self-start" onClick=${() => { seq.current++; setGem({ key: "", remember: false, model: "" }); setDraft(""); setState(null); }}>Desconectar</button>
+          <label htmlFor="gemini-model" className="text-sm font-bold">Versión de Gemini para esta sesión</label>
+          <select id="gemini-model" className="field !text-sm mono" value=${gem.model} onChange=${(e) => setGem({ ...gem, model: e.target.value })}>
+            ${(gem.models?.length ? gem.models : [{ id: gem.model }]).map((m) => html`<option key=${m.id} value=${m.id}>${m.label || m.id}${m.id === bestGeminiFlash((gem.models || []).map((x) => x.id)) ? "  (recomendado)" : ""}</option>`)}
+          </select>
+          <span className="text-xs">Se eligió automáticamente el Gemini Flash más reciente de tu cuenta. Puedes cambiarlo cuando quieras. La key se guarda ${gem.remember ? "en este navegador" : "solo durante esta sesión"}.</span>
+          <button className="btn btn-ghost !py-1.5 text-sm self-start" onClick=${() => { seq.current++; setGem({ key: "", remember: false, model: "", models: [] }); setDraft(""); setState(null); }}>Desconectar</button>
         </div>`
       : html`<ol className="flex flex-col gap-4">
           <${GuideStep} n="1">
@@ -344,13 +350,25 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady
       ${!IN_CLAUDE && mode === "gemini" && !geminiReady && html`<p className="text-xs font-bold mt-1 text-peach">Mientras conectas tu cuenta se usa el modo demo.</p>`}
     <//>
     <${ModeCard} id="claude" num="2" active=${mode === "claude"} available=${claudeOk} onPick=${onMode}
-      title="Cuenta de Claude" desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "Inicia sesión en claude.ai para usar tu cuenta.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key."}
+      title=${html`Cuenta de Claude <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
+      desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude, sin API key: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "Inicia sesión en claude.ai para usar tu cuenta.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key: lee imágenes y letra a mano y redacta preguntas a medida."}
       tags=${IN_CLAUDE ? (claudeVision ? ["OCR + manuscritos", "preguntas IA", "validación IA"] : ["preguntas IA", "validación IA"]) : []}>
       ${!IN_CLAUDE && html`<a className="btn btn-ghost !py-2 text-sm mt-2 self-start" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Iniciar sesión en Claude ↗</a>`}
     <//>
     <${ModeCard} id="demo" num="3" active=${mode === "demo"} available=${true} onPick=${onMode}
       title="Demo local" desc="Sin IA: extracción con PDF.js y Mammoth, OCR con Tesseract y preguntas por reglas, todo en tu navegador."
-      tags=${["sin cuenta", "privado", "texto impreso"]} />
+      tags=${["sin cuenta", "privado", "texto impreso"]}>
+      ${mode === "demo" && html`<div className="mt-2 rounded-xl p-3 tone-butter text-sm flex flex-col gap-2" role="note" onClick=${(e) => e.stopPropagation()} style=${{ cursor: "default" }}>
+        <b>Recomendación sobre el modo demo</b>
+        <span>Este modo es más simple: no usa inteligencia artificial y crea las preguntas con reglas a partir de las oraciones de tus documentos. Funciona mejor con <b>Word, PDF o archivos de texto</b> con párrafos bien redactados; con fotos, esquemas o apuntes a mano obtendrá poco.</span>
+        <span>Para mejores resultados y un análisis más completo, inicia sesión con <b>Claude</b> o conecta <b>Gemini</b>. Si lo prefieres, puedes seguir en este modo.</span>
+        <span className="flex flex-wrap gap-2">
+          ${!IN_CLAUDE && html`<button className="btn btn-primary !py-1.5 text-sm" onClick=${() => onMode("gemini")}>Usar With Gemini</button>`}
+          ${IN_CLAUDE ? claudeOk && html`<button className="btn btn-primary !py-1.5 text-sm" onClick=${() => onMode("claude")}>Usar mi cuenta de Claude</button>`
+            : html`<a className="btn btn-ghost !py-1.5 text-sm" href=${LINKS.claudeApp} target="_blank" rel="noopener">Iniciar sesión con Claude ↗</a>`}
+        </span>
+      </div>`}
+    <//>
     <${ModeCard} id="api" num="4" active=${mode === "api"} available=${!IN_CLAUDE} onPick=${onMode}
       title="Mi API key" desc=${IN_CLAUDE ? "Disponible en la versión web: este visor de Claude bloquea conexiones a otros servicios." : "Conecta tu key de Google Gemini, Llama (vía Groq) o Grok (xAI)."}
       tags=${IN_CLAUDE ? [] : ["Gemini", "Llama", "Grok"]}>

@@ -8,9 +8,9 @@ Convierte tus apuntes en cuestionarios. Sube PDF, Word, PowerPoint, exportacione
 
 | Modo | Qué necesita | Cómo funciona |
 |---|---|---|
-| **1. With Gemini** ★ recomendado | Una cuenta de Google | Panel guiado de 3 pasos: «Iniciar sesión en Google AI Studio» → «Create API key» (gratis) → pegar la key. La página la valida sola listando tus modelos, muestra «Conectado con tu cuenta de Google ✓» y elige un modelo Gemini Flash. Lee imágenes y letra a mano, genera preguntas y valida respuestas. |
-| **2. Cuenta de Claude** | Una cuenta de Claude | El botón «Entrar con mi cuenta de Claude» abre StudyMaster dentro de [claude.ai](https://claude.ai/artifact/92VXBGiiXZfxxjK2iSa3Fg). La persona inicia sesión con su correo y la IA usa **su propia cuenta** (sin API key). |
-| **3. Demo local** | Nada | Todo ocurre en el navegador: PDF.js, Mammoth y JSZip extraen el texto, Tesseract.js lee el texto impreso de las imágenes y las preguntas se generan con reglas. Sin IA y sin enviar archivos a ningún sitio. |
+| **1. With Gemini** ★ recomendado | Una cuenta de Google | Panel guiado de 3 pasos: «Iniciar sesión en Google AI Studio» → «Create API key» (gratis) → pegar la key. La página la valida sola listando tus modelos, muestra «Conectado con tu cuenta de Google ✓» y elige automáticamente el Gemini Flash más reciente de tu key (p. ej. 3.8 o 3.7 Flash). El menú «Versión de Gemini para esta sesión» deja elegir cualquier otro modelo de tu key; la elección se recuerda. Lee imágenes y letra a mano, genera preguntas y valida respuestas. |
+| **2. Cuenta de Claude** ★ recomendado | Una cuenta de Claude | El botón «Entrar con mi cuenta de Claude» abre StudyMaster dentro de [claude.ai](https://claude.ai/artifact/92VXBGiiXZfxxjK2iSa3Fg). La persona inicia sesión con su correo y la IA usa **su propia cuenta** (sin API key). |
+| **3. Demo local** | Nada | Todo ocurre en el navegador: PDF.js, Mammoth y JSZip extraen el texto, Tesseract.js lee el texto impreso de las imágenes y las preguntas se generan con reglas a partir de oraciones completas del material. Sin IA y sin enviar archivos a ningún sitio. Funciona mejor con Word, PDF o texto con párrafos redactados; para fotos, esquemas o letra a mano conviene With Gemini o la cuenta de Claude. |
 | **4. Mi API key** | Una key de Gemini, Groq o xAI | Eliges **Google Gemini**, **Llama (vía Groq)** o **Grok (xAI)**, pegas tu key y pulsas «Probar conexión». La página lista tus modelos y elige uno para texto y otro para imágenes. |
 
 La cabecera muestra siempre el modo activo (por ejemplo «Gemini · tu cuenta»). Si tu cuenta gratuita de Gemini llega a su límite (error 429), la página avisa: «Alcanzaste el límite gratuito de tu cuenta de Gemini; espera un minuto o usa el modo Demo local (sin IA)».
@@ -25,7 +25,7 @@ Dónde conseguir una key: [Google AI Studio](https://aistudio.google.com/apikey)
 - OCR de imágenes incrustadas y páginas escaneadas; lectura de manuscritos con IA (modos 2 y 3).
 - Hasta 3 modalidades combinadas (la cuarta se bloquea), 4 niveles de dificultad y de 1 a 100 preguntas.
 - Cada pregunta muestra encima la **temática** del documento a la que pertenece (título del apartado, diapositiva o capítulo).
-- Preguntas con sentido: las opciones incorrectas concuerdan con la correcta, las afirmaciones falsas cambian un dato concreto y nunca se mezclan documentos distintos.
+- Preguntas con sentido: solo se usan oraciones completas (las líneas cortadas de PDF y OCR se unen antes), las opciones incorrectas concuerdan con la correcta, las afirmaciones falsas cambian un dato concreto y nunca se mezclan documentos distintos.
 - Corrección inmediata en selección múltiple y V/F; en completar y abiertas se muestra la **respuesta oficial del documento** con autoevaluación («✅ Respondí bien» / «❌ Me equivoqué») o validación con IA.
 - Resultados con porcentaje, estadísticas por tipo, insignia Jacqueline y revisión completa.
 - Historial de sesiones en la barra lateral, tema claro/oscuro y diseño adaptado al móvil.
@@ -39,7 +39,8 @@ index.html            página (GitHub Pages)
 assets/app.js|css     aplicación compilada
 vendor/               librerías locales (React, htm, JSZip, Mammoth, PDF.js, Tesseract.js + datos de español e inglés)
 src/                  código fuente
-  core.js             almacenamiento, extracción, motor demo y motores de IA
+  core.js             almacenamiento, extracción y motores de IA
+  demo.js             motor demo local (sin IA): une líneas cortadas, detecta temas y conceptos y crea preguntas
   providers.js        modos de uso: cuenta de Claude y API key (Gemini, Groq, xAI)
   ui.js               interfaz (React + htm)
   input.css           estilos (Tailwind CSS)

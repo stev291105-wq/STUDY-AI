@@ -263,6 +263,17 @@ function getTesseract() {
   }
   return tessWorkerPromise;
 }
+/** Prepara una imagen para Tesseract: tamaño de lectura óptimo, escala de grises y más contraste. */
+async function ocrCanvas(blob) {
+  const bmp = await createImageBitmap(blob);
+  const scale = Math.min(2.5, Math.max(1, 1800 / bmp.width));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+  const g = c.getContext("2d");
+  g.filter = "grayscale(1) contrast(1.35)";
+  g.drawImage(bmp, 0, 0, c.width, c.height);
+  return c;
+}
 function localVision() {
   return async function analyze(items, docName, { pdf = false, nativeByLabel = {}, onProgress } = {}) {
     const out = [];
@@ -270,14 +281,21 @@ function localVision() {
     const worker = await getTesseract();
     for (let i = 0; i < items.length; i++) {
       onProgress?.(`OCR local: ${i + 1}/${items.length}`);
-      const { data } = await worker.recognize(items[i].blob);
-      let text = (data.text || "").replace(/\n{3,}/g, "\n\n").trim();
+      const { data } = await worker.recognize(await ocrCanvas(items[i].blob));
+      // Solo las líneas leídas con confianza suficiente; el resto suele ser ruido de fondo, dibujos o letra a mano.
+      // Tesseract 5 agrupa el resultado en bloques → párrafos → líneas; se conserva esa estructura de párrafos.
+      const paras = (data.blocks || []).flatMap((b) => b.paragraphs || [])
+        .map((p) => (p.lines || []).filter((l) => l.confidence >= 60).map((l) => l.text.trim()).filter(Boolean).join("\n"))
+        .filter(Boolean);
+      let text = (data.blocks ? paras.join("\n\n") : data.text || "").replace(/\n{3,}/g, "\n\n").trim();
       if (pdf && nativeByLabel[items[i].label]) {
         const native = normalize(nativeByLabel[items[i].label]);
         text = text.split("\n").filter((l) => { const n = normalize(l); return n.length > 2 && !native.includes(n); }).join("\n").trim();
       }
       if (text.length < 3) continue;
-      out.push({ location: items[i].label, origin: "ocr", text: data.confidence < 55 ? `${text}\n[OCR local con baja confianza: puede ser escritura a mano; usa el motor IA para leer manuscritos]` : text });
+      // Con baja confianza el texto se muestra, pero no se usa para generar preguntas (evita preguntas sobre texto mal leído).
+      const low = data.confidence < 60;
+      out.push({ location: items[i].label, origin: "ocr", lowConfidence: low || undefined, text: low ? `${text}\n[OCR local con baja confianza: puede ser escritura a mano; usa With Gemini o tu cuenta de Claude para leerla bien]` : text });
     }
     return out;
   };
@@ -436,7 +454,9 @@ function buildMaterial(files, budget) {
   const text = files.map((f) => `<documento nombre="${f.name.replace(/"/g, "'")}">\n` + f.sections.map((s) => {
     const keep = ratio < 1 ? Math.max(160, Math.floor(s.text.length * ratio)) : s.text.length;
     included += Math.min(keep, s.text.length);
-    return `[${s.location} · ${ORIGIN_TAG[s.origin] || s.origin}]\n${s.text.length > keep ? s.text.slice(0, keep) + " […]" : s.text}`;
+    // Párrafos reconstruidos (PDF y OCR cortan las líneas): la IA recibe oraciones completas.
+    const text = s.origin === "visual" ? s.text : reflow(s.text).join("\n");
+    return `[${s.location} · ${ORIGIN_TAG[s.origin] || s.origin}]\n${text.length > keep ? text.slice(0, keep) + " […]" : text}`;
   }).join("\n\n") + "\n</documento>").join("\n\n");
   return { text, coverage: Math.round((Math.min(included, total) / Math.max(1, total)) * 100) };
 }
@@ -566,272 +586,7 @@ const AI_ERRORS = {
 const aiErrorText = (e) => (e?.code === "api" && e.message) ? e.message : AI_ERRORS[e?.code] || (e?.message ? String(e.message) : "Error inesperado.");
 const DISABLE_CODES = new Set(["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"]);
 
-// ------------------------------------------------------------------ motor demo local (reglas)
-const STOP = new Set(("a al algo algun alguna algunas alguno algunos ante antes aqui asi aun cada como con contra cual cuales cuando de del desde donde dos e el ella ellas ellos en entre era eran es esa esas ese eso esos esta estaba estado estan estar estas este esto estos fue fueron ha han hasta hay la las le les lo los mas me mi mismo mucho muy nada ni no nos o otra otras otro otros para pero poco por porque pues que quien se sea segun ser si sin sobre son su sus tal tambien tanto te tiene tienen todo todos tras tu un una unas uno unos y ya cual cada dicho dicha hace hacen puede pueden debe deben the of and to in is are was were be by for with as on at from that this these those it its an or not can will has have had which").split(" "));
-const isStop = (w) => STOP.has(normalize(w));
-const tokens = (t) => t.match(/[\p{L}\p{N}][\p{L}\p{N}%,.\-]*[\p{L}\p{N}%]|[\p{L}\p{N}]/gu) || [];
-const DEFINITION = /\b(es|son|se define|significa|consiste|se denomina|se llama|se conoce como|corresponde a|refiere a)\b|:/i;
-const DETAIL = /\d|\b(excepto|salvo|solo|únicamente|siempre|nunca|todos|ningún|ninguna|mientras|aunque|sin embargo)\b/i;
-
-// Título del documento sin extensión ni prefijos ("Ejemplo · La célula.txt" → "La célula").
-const docTitle = (name) => name.replace(/\.[^.]+$/, "").replace(/^ejemplo\s*·\s*/i, "").replace(/[_-]+/g, " ").trim();
-const cleanHeading = (t) => t.replace(/^(?:[•\-–*·]\s*)/, "").replace(/[:\s]+$/, "").trim();
-function headingLike(line) {
-  const t = cleanHeading(line);
-  if (t.length < 3 || t.length > 70 || /[.;,]$/.test(line.trim())) return false;
-  if (t.split(/\s+/).length > 9 || !/^[\p{Lu}\d¿¡]/u.test(t)) return false;
-  return (t.match(/\p{L}/gu) || []).length / t.length > 0.6;
-}
-
-/** Oraciones citables con su temática: el título de la sección, diapositiva o página donde aparecen. */
-function buildCorpus(files) {
-  const sents = [];
-  files.forEach((f, fi) => {
-    let heading = "";
-    f.sections.forEach((sec) => {
-      if (sec.origin === "visual") return;
-      const lines = sec.text.replace(/\r/g, "").replace(/\[[^\]]*\]/g, " ").split(/\n+/).map((l) => l.trim()).filter(Boolean);
-      // La primera línea de una diapositiva o página suele ser su título; dentro del texto, un título va seguido de un párrafo.
-      if (sec.origin === "native_text" && lines[0] && headingLike(lines[0]) && (/^Diapositiva/.test(sec.location) || lines.length > 1)) heading = cleanHeading(lines[0]);
-      lines.forEach((line, i) => {
-        const next = lines[i + 1] || "";
-        if (i > 0 && sec.origin === "native_text" && headingLike(line) && next.length >= 40 && next.length > line.length * 1.5 && /[.!?]$/.test(next)) { heading = cleanHeading(line); return; }
-        line.split(/(?<=[.!?])\s+(?=[\p{Lu}¿¡\d])/u).forEach((raw, k) => {
-          const t = raw.replace(/^(?:[•\-–*·]\s*|\d{1,2}[.)]\s+)/, "").replace(/\s+/g, " ").trim();
-          const words = t.split(" ");
-          const letters = (t.match(/\p{L}/gu) || []).length / Math.max(1, t.length);
-          if (t.length >= 35 && t.length <= 340 && words.length >= 6 && letters > 0.55)
-            sents.push({ text: /[.!?]$/.test(t) ? t : t + ".", doc: f.name, loc: sec.location, topic: heading || docTitle(f.name), fi, li: i * 100 + k, sec });
-        });
-      });
-    });
-  });
-  return sents;
-}
-
-const DETERMINER = /^(el|la|los|las|un|una|unos|unas|del|al|su|sus|este|esta|estos|estas|ese|esa|the|a|an)$/i;
-const FEM = /^(la|las|una|unas|esta|estas|esa)$/i, MASC = /^(el|los|un|unos|del|al|este|estos|ese)$/i;
-// Sustantivos genéricos que no sirven como concepto preguntado ni como opción.
-const GENERIC = new Set("parte partes paso pasos zona zonas material materiales toma forma formas tipo tipos caso casos vez veces manera modo lado nivel niveles mayor menor mitad miles cantidad número números periodo período símbolo resto conjunto ejemplo ejemplos punto puntos cosa cosas aspecto aspectos elemento elementos proceso procesos sistema función funciones región regiones grupo grupos base informacion información lugar momento tiempo año años día días".split(" ").map(normalize));
-// Adverbios, gerundios y participios no son conceptos que preguntar.
-const NOT_CONCEPT = /(mente|ando|iendo)$|^.{4,}(ado|ada|ados|adas|ido|ida|idos|idas)$/i;
-
-function termsOf(text) {
-  const tk = tokens(text), out = [];
-  for (let i = 0; i < tk.length; i++) {
-    const w = tk[i];
-    if (!isStop(w) && (w.length >= 4 || /\d/.test(w) || /^\p{Lu}{2,}$/u.test(w))) out.push(w);
-    const n = tk[i + 1];
-    if (n && !isStop(w) && !isStop(n) && w.length >= 3 && n.length >= 3 && !/\d/.test(w + n)) out.push(w + " " + n);
-  }
-  return out;
-}
-function termIndex(corpus) {
-  const df = new Map(), best = new Map(), nouny = new Set(), gender = new Map(), midCaps = new Set(), subjects = new Set();
-  corpus.forEach((s) => {
-    s.terms = [...new Set(termsOf(s.text))];
-    s.terms.forEach((t) => { const k = normalize(t); df.set(k, (df.get(k) || 0) + 1); });
-    // Un término precedido por un artículo se comporta como sustantivo; el artículo indica su género.
-    const tk = tokens(s.text);
-    tk.forEach((w, i) => {
-      if (i > 0 && /^\p{Lu}/u.test(w)) { midCaps.add(normalize(w)); if (tk[i + 1]) midCaps.add(normalize(w + " " + tk[i + 1])); }
-      if (i === 0 || !DETERMINER.test(tk[i - 1])) return;
-      for (const t of [w, tk[i + 1] ? w + " " + tk[i + 1] : null]) {
-        if (!t) continue;
-        const k = normalize(t);
-        nouny.add(k);
-        if (i === 1) subjects.add(k); // «La mitocondria es…»: el concepto es sujeto de la oración
-        if (FEM.test(tk[i - 1])) gender.set(k, "f"); else if (MASC.test(tk[i - 1])) gender.set(k, "m");
-      }
-    });
-  });
-  const isConcept = (t) => (!t.includes(" ") || (df.get(normalize(t)) || 0) >= 2 || t.split(" ").every((w) => /^\p{Lu}/u.test(w)))
-    && !(!t.includes(" ") && !/^\p{Lu}/u.test(t) && NOT_CONCEPT.test(t)) && !GENERIC.has(normalize(t));
-  corpus.forEach((s, si) => {
-    s.terms = s.terms.filter(isConcept);
-    s.terms.forEach((t) => { const k = normalize(t); if (!best.has(k)) best.set(k, { term: t, fi: s.fi, si }); });
-  });
-  // Una mayúscula al inicio de frase no hace nombre propio («Durante…»); a mitad de frase, sí.
-  const isNoun = (t) => nouny.has(normalize(t)) || /\d/.test(t) || (/^\p{Lu}/u.test(t) && midCaps.has(normalize(t)));
-  const score = (t) => {
-    const k = normalize(t), d = df.get(k) || 1;
-    return Math.log(1 + d) * (d > 10 ? 0.4 : 1) + (t.includes(" ") ? 0.6 : 0) + (/^\p{Lu}/u.test(t) ? 0.35 : 0) + (/\d/.test(t) ? 0.5 : 0) + (isNoun(t) ? 1.2 : 0) + Math.min(t.length, 16) / 14;
-  };
-  return { df, score, isNoun, isSubject: (t) => subjects.has(normalize(t)), gender: (t) => gender.get(normalize(t)) || null, all: [...best.values()].map((b) => ({ ...b, k: normalize(b.term), s: score(b.term) })) };
-}
-function numericVariants(term) {
-  const m = term.match(/-?\d+(?:[.,]\d+)?/);
-  if (!m) return [];
-  const raw = m[0], dec = raw.includes(",") ? "," : ".";
-  const n = parseFloat(raw.replace(",", "."));
-  const isInt = Number.isInteger(n);
-  const fmt = (x) => (isInt ? String(Math.round(x)) : x.toFixed((raw.split(/[.,]/)[1] || "").length).replace(".", dec));
-  const year = isInt && n >= 1000 && n <= 2100;
-  const cands = new Set((year ? [n + 1, n - 1, n + 2, n - 3, n + 5, n - 10] : [n + 1, n - 1, n * 1.1, n * 0.9, n + 10, n * 2, n / 2]).map(fmt));
-  if (!year && raw.length >= 2 && isInt) cands.add(raw.slice(0, -2) + raw.slice(-1) + raw.slice(-2, -1));
-  cands.delete(raw);
-  return [...cands].filter((x) => x && x !== "NaN" && !x.startsWith("-") === !raw.startsWith("-")).map((x) => term.replace(raw, x));
-}
-function pickKeyTerm(s, idx, diff, exclude = []) {
-  const properPairs = s.terms.filter((t) => t.includes(" ") && t.split(" ").every((w) => /^\p{Lu}/u.test(w)));
-  let cands = s.terms.filter((t) => !exclude.includes(t) && s.text.indexOf(t) >= 0 && s.text.indexOf(t) === s.text.lastIndexOf(t) && idx.isNoun(t)
-    && !(!t.includes(" ") && properPairs.some((p) => p.split(" ").includes(t))));
-  if (!cands.length) return null;
-  if (diff === "jacqueline") { const d = cands.filter((t) => /\d|^\p{Lu}/u.test(t) && s.text.indexOf(t) > 0); if (d.length) cands = d; }
-  if (diff === "easy" && DEFINITION.test(s.text)) {
-    const early = cands.filter((t) => s.text.indexOf(t) < 40);
-    if (early.length) cands = early;
-  }
-  return cands.sort((a, b) => idx.score(b) - idx.score(a))[0];
-}
-/** Distractores que encajan en la misma frase: mismo tipo (número/nombre propio/común), número y género. */
-function distractors(term, s, idx, n, diff) {
-  const k = normalize(term);
-  if (/\d/.test(term)) return [...new Set(shuffle(numericVariants(term)))].slice(0, n);
-  const proper = (t) => /^\p{Lu}/u.test(t) && !/^\p{Lu}+$/u.test(t);
-  const plural = (t) => /s$/i.test(t.split(" ")[0]);
-  const g = idx.gender(term);
-  // Mismo documento, misma forma y el mismo uso del artículo: «el Código Civil» no se mezcla con «Napoleón».
-  const base = idx.all.filter((c) => c.k !== k && c.fi === s.fi && !/\d/.test(c.term) && c.term.includes(" ") === term.includes(" ") && idx.isNoun(c.term)
-    && proper(c.term) === proper(term) && plural(c.term) === plural(term) && !GENERIC.has(c.k)
-    && !k.includes(c.k) && !c.k.includes(k) && !normalize(s.text).includes(c.k) && Math.abs(c.term.length - term.length) <= Math.max(6, term.length * 0.7));
-  let pool = base.filter((c) => idx.gender(c.term) === g);
-  if (pool.length < n && !proper(term)) pool = [...pool, ...base.filter((c) => !pool.includes(c) && (!g || !idx.gender(c.term)))];
-  if (diff === "hard" || diff === "jacqueline") pool.sort((a, b) => (b.fi === s.fi) - (a.fi === s.fi) || Math.abs(a.s - idx.score(term)) - Math.abs(b.s - idx.score(term)));
-  else pool = shuffle(pool);
-  return [...new Set(pool.map((c) => c.term))].slice(0, n);
-}
-const replaceOnce = (text, term, by) => { const i = text.indexOf(term); return i < 0 ? text : text.slice(0, i) + by + text.slice(i + term.length); };
-/** Versiones falsas pero bien formadas de una oración verdadera (un dato concreto cambia). */
-function falsify(s, term, idx, diff) {
-  const options = [];
-  // Solo se cambia el sujeto de la oración por otro concepto que también es sujeto en el material
-  // («La ósmosis es…» → «La mitosis es…»). Cambiar nombres propios o complementos produce frases absurdas.
-  const isSubjectHere = !/^\p{Lu}/u.test(term) && idx.isSubject(term) && s.text.indexOf(term) < 25;
-  const swap = isSubjectHere ? distractors(term, s, idx, 8, diff).find((x) => idx.isSubject(x)) : null;
-  if (swap) options.push(replaceOnce(s.text, term, swap));
-  const num = s.text.match(/\d+(?:[.,]\d+)?/);
-  if (num) {
-    // La cifra nueva no puede repetir otra cifra de la misma oración («entre 1794 y 1794»).
-    const present = new Set(s.text.match(/\d+(?:[.,]\d+)?/g));
-    const v = numericVariants(num[0]).find((x) => !present.has(x));
-    if (v) options.push(replaceOnce(s.text, num[0], v));
-  }
-  if (/\bno\s+(es|son|se|tiene|tienen|puede|pueden|debe|deben|requiere|requieren)\b/i.test(s.text)) options.push(s.text.replace(/\bno\s+/i, ""));
-  else if (/\s(es|son)\s/.test(s.text)) options.push(s.text.replace(/\s(es|son)\s/, " no $1 "));
-  if (diff === "hard" || diff === "jacqueline") {
-    if (/\b(generalmente|normalmente|a menudo)\b/i.test(s.text)) options.push(s.text.replace(/\b(generalmente|normalmente|a menudo)\b/i, "siempre"));
-    if (/\b(puede|pueden)\b/.test(s.text)) options.push(s.text.replace(/\b(puede|pueden)\b/, (m) => (m === "pueden" ? "nunca pueden" : "nunca puede")));
-  }
-  return [...new Set(options.filter((o) => o && o !== s.text))];
-}
-const cite = (s) => `Según «${s.doc}» · ${s.loc}: “${s.text}”`;
-function neighbor(s, corpus) {
-  const next = corpus.find((x) => x.sec === s.sec && x.li > s.li && x.li < s.li + 200 && x.text !== s.text);
-  return next ? `${s.text} ${next.text}` : s.text;
-}
-
-/** Revisión final de sentido: descarta preguntas mal formadas, venga de la IA o de las reglas. */
-function saneQuestion(q) {
-  if (!q || !q.prompt || q.prompt.replace(new RegExp(BLANK, "g"), "").trim().length < 12) return false;
-  if (q.type === "multiple_choice") {
-    const n = q.options.map(normalize);
-    if (n.some((x) => !x) || new Set(n).size !== n.length) return false;
-  }
-  if (q.type === "true_false" && q.prompt.includes(BLANK)) return false;
-  if (q.type === "fill_blank" && q.answers.some((v) => !v.length || v.every((x) => isStop(x) || normalize(x).length < 2))) return false;
-  if (q.type === "open" && (!q.modelAnswer || q.modelAnswer.length < 20)) return false;
-  return true;
-}
-
-function generateLocal(files, cfg) {
-  const corpus = buildCorpus(files);
-  if (corpus.length < 4) throw new Error("No hay suficiente texto en los documentos para generar preguntas en modo demo. Añade más material o usa un modo con IA.");
-  const idx = termIndex(corpus);
-  const d = cfg.difficulty;
-  const prefScore = (s) => (d === "easy" ? (DEFINITION.test(s.text) ? 2 : 0) - s.text.length / 300
-    : d === "medium" ? 0 : d === "hard" ? s.text.length / 160 : (DETAIL.test(s.text) ? 2.5 : 0) + s.text.length / 200) + Math.random() * 1.2;
-  const ranked = [...corpus].sort((a, b) => prefScore(b) - prefScore(a));
-  // Cada oración se usa primero una vez; si el material es corto, se reutiliza con otro término clave.
-  const usedTerms = new Map(), questions = [];
-  const used = { has: (s) => usedTerms.has(s), add: (s, t) => usedTerms.set(s, [...(usedTerms.get(s) || []), t || "*"]) };
-  const nOpts = d === "jacqueline" ? 5 : 4;
-  const candidates = function* () {
-    for (const s of ranked) if (!usedTerms.has(s)) yield s;
-    for (const s of ranked) if ((usedTerms.get(s) || []).length === 1) yield s;
-  };
-
-  for (const type of distribute(cfg.modes, cfg.count)) {
-    let made = null;
-    for (const s of candidates()) {
-      const term = pickKeyTerm(s, idx, d, usedTerms.get(s) || []);
-      if (!term) continue;
-      const base = { id: uid(), type, topic: s.topic, explanation: cite(s), source: { doc: s.doc, loc: s.loc } };
-      if (type === "multiple_choice") {
-        if (d === "hard" || d === "jacqueline") {
-          const falses = falsify(s, term, idx, d);
-          if (falses.length >= nOpts - 1) {
-            const opts = shuffle([s.text, ...falses.slice(0, nOpts - 1)]);
-            made = { ...base, prompt: "¿Cuál de estas afirmaciones es exactamente correcta según el material?", options: opts, answerIndex: opts.indexOf(s.text) };
-          }
-        }
-        if (!made) {
-          const ds = distractors(term, s, idx, nOpts - 1, d);
-          if (ds.length >= nOpts - 1) {
-            const opts = shuffle([term, ...ds]);
-            made = { ...base, prompt: `¿Qué término completa correctamente la afirmación?\n«${replaceOnce(s.text, term, BLANK)}»`, options: opts, answerIndex: opts.indexOf(term) };
-          }
-        }
-      } else if (type === "true_false") {
-        const falses = falsify(s, term, idx, d);
-        if (Math.random() < 0.5 || !falses.length) made = { ...base, prompt: s.text, answerBool: true };
-        else made = { ...base, prompt: falses[d === "jacqueline" && falses.length > 1 ? 1 : 0], answerBool: false, explanation: `La afirmación es falsa. ${cite(s)}` };
-      } else if (type === "fill_blank") {
-        let prompt = replaceOnce(s.text, term, BLANK), answers = [[term]];
-        if (d === "jacqueline") {
-          const second = s.terms.find((t) => t !== term && !t.includes(term) && !term.includes(t) && prompt.includes(t) && idx.isNoun(t) && /\d|^\p{Lu}/u.test(t));
-          if (second) { const i1 = s.text.indexOf(term), i2 = s.text.indexOf(second); prompt = replaceOnce(prompt, second, BLANK); answers = i1 < i2 ? [[term], [second]] : [[second], [term]]; }
-        }
-        made = { ...base, prompt, answers };
-      } else if (type === "open") {
-        if (/\d/.test(term)) continue;
-        // «Salvación Pública» en «Comité de Salvación Pública» es parte de un nombre más largo: no sirve como tema de desarrollo.
-        if (/^\p{Lu}/u.test(term) && /\b(de|del)\s*$/i.test(s.text.slice(0, s.text.indexOf(term)))) continue;
-        const stemOf = (t) => normalize(t).replace(/(es|s)$/, "");
-        // Concepto compartido: un sustantivo con artículo (no un adjetivo como «Francesa») presente en ambas oraciones.
-        const sharedTerm = (x) => x.terms.find((t) => !t.includes(" ") && idx.gender(t) && !GENERIC.has(normalize(t)) && !/\d/.test(t) && s.terms.some((u) => stemOf(u) === stemOf(t)));
-        const model = neighbor(s, corpus);
-        if (d === "jacqueline") {
-          // Correlación: lo que dos apartados distintos del mismo documento dicen sobre un mismo concepto.
-          const o = ranked.find((x) => x !== s && x.fi === s.fi && x.topic !== s.topic && !used.has(x) && sharedTerm(x));
-          if (o) {
-            const c = sharedTerm(o);
-            used.add(o, c);
-            made = { ...base, prompt: `Los apartados «${s.topic}» y «${o.topic}» hablan de «${c}». Relaciona lo que dice cada uno: ¿cómo se conectan o complementan ambas ideas según el material? Sé preciso con los datos.`,
-              modelAnswer: `${model}\n\n${neighbor(o, corpus)}`,
-              keyPoints: [...new Set([c, term, ...o.terms.filter((t) => !t.includes(" ") && idx.isNoun(t) && !GENERIC.has(normalize(t))).slice(0, 2)])].slice(0, 4),
-              explanation: `${cite(s)}\n${cite(o)}` };
-          }
-        }
-        if (!made) {
-          const isDef = DEFINITION.test(s.text) && s.text.indexOf(term) < 40;
-          const person = /^\p{Lu}/u.test(term) && !idx.gender(term);
-          const sameAsTopic = normalize(s.topic).includes(normalize(term));
-          const stem = person ? (d === "easy" ? `Según el material, ¿quién fue «${term}» y qué hizo?` : `¿Qué papel tuvo «${term}» según el material y por qué fue relevante?`)
-            : d === "easy" ? (isDef ? `Según el material, ¿qué es «${term}»?` : `Explica con tus palabras qué dice el material sobre «${term}».`)
-            : d === "medium" ? (sameAsTopic ? `Resume lo que el material explica sobre «${term}».` : `Explica qué papel cumple «${term}» dentro del tema «${s.topic}», con lo que indica el material.`)
-            : `Analiza «${term}»: ¿por qué es importante según el material y qué consecuencias o aplicaciones tiene?`;
-          made = { ...base, prompt: stem, modelAnswer: model, keyPoints: [...new Set(termsOf(model).filter((t) => !t.includes(" ") && idx.isNoun(t)).sort((a, b) => idx.score(b) - idx.score(a)))].slice(0, 5) };
-        }
-      }
-      if (made && (!saneQuestion(made) || questions.some((q) => q.prompt === made.prompt))) made = null;
-      if (made) { used.add(s, term); break; }
-    }
-    if (made) questions.push(made);
-  }
-  if (!questions.length) throw new Error("No se pudieron generar preguntas con este material en modo demo.");
-  return { questions, coverage: 100 };
-}
+// El motor demo local (sin IA) vive en demo.js.
 
 // ------------------------------------------------------------------ material de ejemplo
 const SAMPLE_DOC = {

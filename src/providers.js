@@ -76,7 +76,8 @@ async function listModels(provider, key) {
     const b = await httpJSON("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", { headers: { "x-goog-api-key": key } }, provider);
     return (b.models || [])
       .filter((m) => (m.supportedGenerationMethods || []).includes("generateContent") && /gemini/i.test(m.name) && !/embed|tts|image-generation|aqa|live/i.test(m.name))
-      .map((m) => ({ id: m.name.replace(/^models\//, ""), vision: true }));
+      .map((m) => ({ id: m.name.replace(/^models\//, ""), label: m.displayName || "", vision: true }))
+      .sort(geminiOrder);
   }
   const base = provider === "groq" ? "https://api.groq.com/openai/v1" : "https://api.x.ai/v1";
   const b = await httpJSON(base + "/models", { headers: { Authorization: "Bearer " + key } }, provider);
@@ -87,14 +88,24 @@ async function listModels(provider, key) {
 }
 
 const versionOf = (id) => parseFloat((id.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1]) || 0;
+// Modelos Gemini Flash utilizables para texto e imágenes (sin variantes de audio, imagen, embeddings ni «lite»).
+const isGeminiFlash = (id) => /flash/i.test(id) && !/lite|tts|image|audio|live|embed|thinking|8b/i.test(id);
+const isPreview = (id) => /preview|exp/i.test(id);
+/** Orden de la lista: Flash más reciente primero (estable antes que preview en la misma versión), luego el resto. */
+function geminiOrder(a, b) {
+  const fa = isGeminiFlash(a.id), fb = isGeminiFlash(b.id);
+  if (fa !== fb) return fa ? -1 : 1;
+  return versionOf(b.id) - versionOf(a.id) || isPreview(a.id) - isPreview(b.id) || a.id.localeCompare(b.id);
+}
+/** El Gemini Flash más reciente disponible para esta key (p. ej. 3.8 o 3.7 Flash antes que 2.5). */
+const bestGeminiFlash = (ids) => ids.filter(isGeminiFlash).map((id) => ({ id })).sort(geminiOrder)[0]?.id || null;
 /** Elige modelos razonables por defecto; el usuario puede cambiarlos en la lista. */
 function pickModels(provider, models) {
   const ids = models.map((m) => m.id);
   const vis = models.filter((m) => m.vision).map((m) => m.id);
   const byVersion = (arr) => [...arr].sort((a, b) => versionOf(b) - versionOf(a));
   if (provider === "gemini") {
-    const flash = byVersion(ids.filter((id) => /flash/.test(id) && !/lite|thinking|exp|preview|8b/.test(id)));
-    const any = flash[0] || byVersion(ids.filter((id) => /flash|pro/.test(id)))[0] || ids[0];
+    const any = bestGeminiFlash(ids) || byVersion(ids.filter((id) => /flash|pro/.test(id)))[0] || ids[0];
     return { text: any, vision: any };
   }
   if (provider === "groq") {
@@ -119,7 +130,8 @@ function apiKeyAI(cfg) {
       if (cfg.provider === "gemini") {
         const body = {
           contents: [{ role: "user", parts: [...imgs.map((data) => ({ inline_data: { mime_type: "image/jpeg", data } })), { text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
+          // Sin «temperature»: los Gemini 3 están ajustados para su valor por defecto y bajarlo empeora sus respuestas.
+          generationConfig: { responseMimeType: "application/json" },
         };
         const r = await httpJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
           { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": cfg.key }, body: JSON.stringify(body) }, cfg.provider);
@@ -172,11 +184,12 @@ const geminiAccount = {
     const remember = pref.get("smai:gemini:remember", false);
     let key = "";
     try { key = (remember ? localStorage : sessionStorage).getItem(GEMINI_KEY) || ""; } catch {}
-    return { key, remember, model: key ? pref.get("smai:gemini:model", "") : "" };
+    return { key, remember, model: key ? pref.get("smai:gemini:model", "") : "", models: key ? pref.get("smai:gemini:models", []) : [] };
   },
-  save({ key, remember, model }) {
+  save({ key, remember, model, models }) {
     pref.set("smai:gemini:remember", !!remember);
     pref.set("smai:gemini:model", model || "");
+    pref.set("smai:gemini:models", key ? models || [] : []);
     try {
       localStorage.removeItem(GEMINI_KEY); sessionStorage.removeItem(GEMINI_KEY);
       if (key) (remember ? localStorage : sessionStorage).setItem(GEMINI_KEY, key);
@@ -187,9 +200,7 @@ const geminiAccount = {
 /** Valida la key listando los modelos de la cuenta y elige un único modelo Flash disponible. */
 async function connectGemini(key) {
   const models = await listModels("gemini", key);
-  const flash = models.map((m) => m.id).filter((id) => /flash/i.test(id) && !/tts|image|audio|live|embed/i.test(id));
-  const stable = flash.filter((id) => !/lite|thinking|exp|preview|8b/i.test(id));
-  const pick = [...(stable.length ? stable : flash)].sort((a, b) => versionOf(b) - versionOf(a))[0];
+  const pick = bestGeminiFlash(models.map((m) => m.id));
   if (!pick) throw { code: "api", message: "Tu cuenta de Google no tiene ningún modelo Gemini Flash disponible." };
-  return pick;
+  return { model: pick, models: models.map(({ id, label }) => ({ id, label })) };
 }

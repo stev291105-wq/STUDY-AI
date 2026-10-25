@@ -9,7 +9,7 @@ const ART = process.argv[3] || B + "dist/artifact";
 const read = (p) => readFileSync(B + p, "utf8");
 execSync(`npx tailwindcss -c ${B}tailwind.config.cjs -i ${B}src/input.css -o ${B}out.css --minify`, { cwd: B, stdio: "inherit" });
 const css = readFileSync(B + "out.css", "utf8");
-const js = "(() => {\n\"use strict\";\n" + ["core.js", "providers.js", "ui.js"].map((f) => read("src/" + f)).join("\n") + "\n})();";
+const js = "(() => {\n\"use strict\";\n" + ["core.js", "demo.js", "providers.js", "ui.js"].map((f) => read("src/" + f)).join("\n") + "\n})();";
 writeFileSync(B + "app.check.js", js);
 execSync(`node --check ${B}app.check.js`);
 const ver = new Date().toISOString().slice(0, 10).replace(/-/g, "");
