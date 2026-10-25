@@ -3,6 +3,7 @@
 //   artifact/  → página única para la versión dentro de Claude (librerías por CDN)
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 const B = new URL(".", import.meta.url).pathname;
 const WEB = process.argv[2] || B + "dist/web";
 const ART = process.argv[3] || B + "dist/artifact";
@@ -12,7 +13,8 @@ const css = readFileSync(B + "out.css", "utf8");
 const js = "(() => {\n\"use strict\";\n" + ["core.js", "demo.js", "providers.js", "ui.js"].map((f) => read("src/" + f)).join("\n") + "\n})();";
 writeFileSync(B + "app.check.js", js);
 execSync(`node --check ${B}app.check.js`);
-const ver = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+// Versión = huella del contenido: cada publicación cambia la URL de los recursos y el navegador no usa una copia vieja.
+const ver = createHash("sha1").update(js).update(css).digest("hex").slice(0, 10);
 
 mkdirSync(WEB + "/assets", { recursive: true });
 writeFileSync(WEB + "/assets/app.css", css);
