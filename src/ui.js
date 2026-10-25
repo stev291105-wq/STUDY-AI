@@ -491,7 +491,7 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady
     <//>
     <${ModeCard} id="claude" num="2" active=${mode === "claude"} available=${claudeOk} onPick=${onMode}
       title=${html`Cuenta de Claude <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
-      desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude, sin API key: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "Inicia sesión en claude.ai para usar tu cuenta.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key: lee imágenes y letra a mano y redacta preguntas a medida."}
+      desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude, sin API key: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "claude.ai no ofrece la IA de tu cuenta a esta página. Pasa si no has iniciado sesión o si la abres con una cuenta distinta de la que publicó la página. Mientras tanto se usa el modo demo.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key: lee imágenes y letra a mano y redacta preguntas a medida."}
       tags=${IN_CLAUDE ? (claudeVision ? ["OCR + manuscritos", "preguntas IA", "validación IA"] : ["preguntas IA", "validación IA"]) : []}>
       ${IN_CLAUDE && !claudeOk && html`<button className="btn btn-primary !py-2 text-sm mt-2 self-start" onClick=${async (e) => {
         e.stopPropagation();
@@ -500,8 +500,8 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady
         if (p) { const st = await p.state().catch(() => ({})); const ask = CLAUDE_CAPS.filter((n) => st?.[n] === "prompt"); if (ask.length) await p.request(ask).catch(() => {}); }
         location.reload();
       }}><${Icon} name="user" size=${16} /> Conectar mi cuenta de Claude</button>`}
-      ${!IN_CLAUDE && html`<a className="btn btn-primary !py-2 text-sm mt-2 self-start !whitespace-normal" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Entrar con mi cuenta de Claude ↗</a>
-        <span className="text-xs mt-1" style=${{ color: "rgb(var(--muted))" }}>Se abre StudyMaster en claude.ai: inicias sesión y entras directamente con el modo Claude conectado, sin escribir tu nombre.</span>`}
+      ${!IN_CLAUDE && html`<a className="btn btn-primary !py-2 text-sm mt-2 self-start !whitespace-normal" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Abrir en Claude ↗</a>
+        <span className="text-xs mt-1" style=${{ color: "rgb(var(--muted))" }}>StudyMaster se abre como artefacto en Claude (claude.ai en el navegador o la app de Claude) y entra directo a la página de estudio con la IA de tu cuenta.</span>`}
     <//>
     <${ModeCard} id="demo" num="3" active=${mode === "demo"} available=${true} onPick=${onMode}
       title="Demo local" desc="Sin IA: extracción con PDF.js y Mammoth, OCR con Tesseract y preguntas por reglas, todo en tu navegador."
@@ -513,7 +513,7 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady
         <span className="flex flex-wrap gap-2">
           ${!IN_CLAUDE && html`<button className="btn btn-primary !py-1.5 text-sm" onClick=${() => onMode("gemini")}>Usar With Gemini</button>`}
           ${IN_CLAUDE ? claudeOk && html`<button className="btn btn-primary !py-1.5 text-sm" onClick=${() => onMode("claude")}>Usar mi cuenta de Claude</button>`
-            : html`<a className="btn btn-ghost !py-1.5 text-sm" href=${LINKS.claudeApp} target="_blank" rel="noopener">Iniciar sesión con Claude ↗</a>`}
+            : html`<a className="btn btn-ghost !py-1.5 text-sm" href=${LINKS.claudeApp} target="_blank" rel="noopener">Abrir en Claude ↗</a>`}
         </span>
       </div>`}
     <//>
@@ -947,9 +947,10 @@ function App() {
   const enterClaude = () => {
     const a = caps.db && caps.uid ? { mode: "account", nick: caps.me?.name || "" } : { mode: "guest", nick: caps.me?.name || "" };
     setLoginNotice(null); setEngine("claude"); pref.set("smai:engine", "claude"); setAuth(a);
+    if (!caps.sample) toast("claude.ai no ofrece la IA de tu cuenta a esta página: se usa el modo demo. Mira la tarjeta «Cuenta de Claude» para conectarla.", "butter");
   };
   useEffect(() => {
-    if (!IN_CLAUDE || !caps.ready || auth || autoEntered.current || !(caps.sample || caps.me)) return;
+    if (!IN_CLAUDE || !caps.ready || auth || autoEntered.current) return;
     autoEntered.current = true;
     enterClaude();
   }, [caps.ready]);
