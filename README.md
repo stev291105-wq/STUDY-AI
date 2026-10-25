@@ -24,7 +24,7 @@ Dónde conseguir una key: [Google AI Studio](https://aistudio.google.com/apikey)
 - Carga ilimitada de archivos y carpetas (arrastrar y soltar): PDF, DOCX, PPTX, PNG, JPG, WEBP, GIF, TXT/MD/CSV.
 - OCR de imágenes incrustadas y páginas escaneadas; lectura de manuscritos con IA (modos 2 y 3).
 - Hasta 3 modalidades combinadas (la cuarta se bloquea), 4 niveles de dificultad y de 1 a 100 preguntas.
-- Los enunciados van directos, sin mencionar documento, sección ni página. Cada pregunta muestra encima la **temática** del documento a la que pertenece (título del apartado, diapositiva o capítulo).
+- Los enunciados van directos y completos, sin mencionar documento, sección ni página. Cada pregunta muestra como título la **temática** y, al lado y subrayado, el **subtema concreto** que pregunta (en todos los modos: demo, Gemini, API keys y Claude); el subtema nunca delata la respuesta. La pregunta también se muestra completa en la revisión. del documento a la que pertenece (título del apartado, diapositiva o capítulo).
 - Preguntas con sentido: solo se usan oraciones completas (las líneas cortadas de PDF y OCR se unen antes), las opciones incorrectas concuerdan con la correcta, las afirmaciones falsas cambian un dato concreto y nunca se mezclan documentos distintos.
 - Corrección inmediata en selección múltiple y V/F; en completar y abiertas se muestra la **respuesta oficial del documento** con autoevaluación («✅ Respondí bien» / «❌ Me equivoqué») o validación con IA.
 - Resultados con porcentaje, estadísticas por tipo, insignia Jacqueline y revisión completa.

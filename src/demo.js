@@ -299,6 +299,35 @@ const contentWords = (t) => normalize(t).split(" ").filter((w) => w.length > 2 &
 const overlaps = (x, y) => { const A = contentWords(x), B = contentWords(y); return !A.length || !B.length || A.every((w) => B.includes(w)) || B.every((w) => A.includes(w)); };
 const sameConcept = (a, b) => normalize(a.subj.noun) === normalize(b.subj.noun) || overlaps(a.subj.noun, b.subj.noun);
 
+/** ¿El subtema delata la respuesta? (en selección y completar no puede nombrarla). */
+function revealsAnswer(q) {
+  if (!q.focus) return false;
+  const ans = (q.type === "multiple_choice" ? [q.options?.[q.answerIndex]] : q.type === "fill_blank" ? (q.answers || []).flat() : []).filter(Boolean).map(String);
+  return ans.some((a) => contentWords(a).length && (overlaps(a, q.focus) || normalize(q.focus).includes(normalize(a))));
+}
+// Frase nominal corta para usar como subtema: «está formado por microtúbulos, microfilamentos…» → «Microtúbulos, microfilamentos y filamentos».
+function shortPhrase(t, n = 6, pred = false) {
+  const LEADING = /^(no|se|lo|le|les|que|por|de|del|en|con|a|al|entre|para|el|la|los|las|un|una|unos|unas|muy|más|tan|solo)$/i;
+  const verbish = (w) => VERB_WORDS.has(normalize(w)) || /(?:ado|ada|ados|adas|ido|ida|idos|idas|aba|aban|ía|ían|ó|aron|ieron)$/i.test(w);
+  let w = String(t).replace(/[«»"“”]/g, "").replace(new RegExp(BLANK, "g"), " ").split(/\s+/).filter(Boolean);
+  if (pred && w.length > 2) w.shift();
+  while (w.length > 2 && (LEADING.test(bare(w[0])) || verbish(bare(w[0])))) w.shift();
+  const out = [];
+  for (const x of w) { if (out.length && (/^que$/i.test(bare(x)) || verbish(bare(x)))) break; out.push(x); if (out.length >= n || /[.;:]$/.test(x)) break; }
+  while (out.length > 1 && (isStop(bare(out[out.length - 1])) || /,$/.test(out[out.length - 1]) && out.length > 2 && isStop(bare(out[out.length - 2])))) out.pop();
+  const res = out.join(" ").replace(/[,;:.]+$/, "");
+  // Una cifra suelta («1839 por…») no nombra un tema: se usan las ideas clave del texto.
+  if (!res || /^\d/.test(res)) { const k = keyIdeas(t, 2); return k.length ? ucFirst(k.join(" y ")) : ""; }
+  return ucFirst(res);
+}
+/** Si el subtema delata la respuesta, se cambia por una idea del enunciado que no la nombra. */
+function safeFocus(q) {
+  if (!revealsAnswer(q)) return q;
+  const ans = (q.type === "multiple_choice" ? [q.options?.[q.answerIndex]] : (q.answers || []).flat()).map(String);
+  const alt = keyIdeas(q.prompt.split(BLANK).join(" "), 4, ans.join(" ")).find((w) => !ans.some((a) => normalize(a).includes(normalize(w))));
+  return { ...q, focus: alt ? ucFirst(alt) : "" };
+}
+
 /** Revisión final de sentido: descarta preguntas mal formadas, venga de la IA o de las reglas. */
 function saneQuestion(q) {
   if (!q || !q.prompt || q.prompt.replace(new RegExp(BLANK, "g"), "").trim().length < 12) return false;
@@ -357,7 +386,12 @@ function generateLocal(files, cfg) {
   const used = new Map(); // id del hecho → tipos ya usados
   const mark = (f, type) => used.set(f.id, [...(used.get(f.id) || []), type]);
   const usable = (f, type) => !(used.get(f.id) || []).includes(type) && (used.get(f.id) || []).length < 2;
-  const base = (f, type) => ({ id: uid(), type, topic: f.topic, explanation: cite(f), source: { doc: f.doc, loc: f.loc } });
+  // Subtema concreto de cada pregunta: el concepto del que trata (se muestra subrayado junto a la temática).
+  const focusOf = (f) => {
+    const t = f.term ? f.term.name : f.subj ? ucFirst(f.subj.npText) : (keyIdeas(f.text, 1)[0] || "");
+    return t && normalize(t) !== normalize(f.topic) ? ucFirst(t) : "";
+  };
+  const base = (f, type) => ({ id: uid(), type, topic: f.topic, focus: focusOf(f), explanation: cite(f), source: { doc: f.doc, loc: f.loc } });
 
   const build = {
     multiple_choice(f) {
@@ -411,9 +445,12 @@ function generateLocal(files, cfg) {
       const falses = [];
       if (f.subj) {
         // Otro concepto comparable del mismo documento: fácil → de otro tema; difícil → del mismo tema (más sutil).
-        const pool = peers(f, { sameTopic: hard && peers(f, { sameTopic: true }).length > 0 });
-        const pick = d === "easy" ? pool.find((x) => x.topic !== T) || pool[0] : pool[0];
-        if (pick) falses.push({ text: swapSubject(f, pick), why: contract(`El material atribuye esto a ${npLower(f.subj)}, no a ${npLower(pick.subj)}.`) });
+        // Solo se cambia por un concepto relacionado (comparten ideas del texto o el mismo tema), para que la falsa sea plausible.
+        const mine = new Set(contentWords(f.subj.pred));
+        const related = (x) => contentWords(x.subj.pred).filter((w) => mine.has(w)).length + (normalize(x.subj.noun.split(" ")[0]) === normalize(f.subj.noun.split(" ")[0]) ? 2 : 0);
+        const pool = peers(f).map((x) => ({ x, r: related(x) })).filter((p) => p.r > 0).sort((a, b) => b.r - a.r + (b.x.topic === T) - (a.x.topic === T)).map((p) => p.x);
+        const pick = pool[0];
+        if (pick) falses.push({ text: swapSubject(f, pick), focus: ucFirst(npLower(pick.subj)), why: contract(`El material atribuye esto a ${npLower(f.subj)}, no a ${npLower(pick.subj)}.`) });
         if (f.subj.def) falses.push({ text: replaceOnce(f.text, ` ${f.subj.copula} `, ` no ${f.subj.copula} `), why: `El material afirma lo contrario.` });
       }
       if (f.numbers.length) {
@@ -426,7 +463,7 @@ function generateLocal(files, cfg) {
       const pickFalse = order.find((x) => !sentences.has(normalize(x.text)) && x.text !== f.text);
       const ask = (text) => `${lead(f)}${text}`;
       if (!pickFalse || Math.random() < 0.45) return f.subj || f.numbers.length ? { ...b, prompt: ask(f.text), answerBool: true, explanation: `Es verdadera: el material lo afirma así.\n${cite(f)}` } : null;
-      return { ...b, prompt: ask(pickFalse.text), answerBool: false, explanation: `Es falsa. ${pickFalse.why}\n${cite(f)}` };
+      return { ...b, ...(pickFalse.focus ? { focus: pickFalse.focus } : {}), prompt: ask(pickFalse.text), answerBool: false, explanation: `Es falsa. ${pickFalse.why}\n${cite(f)}` };
     },
 
     fill_blank(f) {
@@ -473,7 +510,7 @@ function generateLocal(files, cfg) {
             const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}» y cuáles a «${pair.term.name}»?`
               : t.person ? `¿Con qué se asocia a ${t.name} y con qué a ${pair.term.name}?`
               : `Explica y diferencia «${t.name}» y «${pair.term.name}».`;
-            return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n${card(pair)}`, keyPoints: t.refs ? [...refNames(t.desc).slice(0, 2), ...refNames(pair.term.desc).slice(0, 2)] : [...keyIdeas(t.desc, 2), ...keyIdeas(pair.term.desc, 2)], explanation: `${cite(f)}\n${cite(pair)}` };
+            return { ...base(f, "open"), focus: `${t.name} y ${pair.term.name}`, prompt, modelAnswer: `${card(f)}\n${card(pair)}`, keyPoints: t.refs ? [...refNames(t.desc).slice(0, 2), ...refNames(pair.term.desc).slice(0, 2)] : [...keyIdeas(t.desc, 2), ...keyIdeas(pair.term.desc, 2)], explanation: `${cite(f)}\n${cite(pair)}` };
           }
         }
         const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}»?`
@@ -499,7 +536,7 @@ function generateLocal(files, cfg) {
             ? (comparable ? `Compara ${np} y ${other}: ¿en qué se parecen y en qué se diferencian? Sé preciso con los datos.`
               : `¿Qué relación hay entre ${np} y ${other}? Explícala con datos concretos.`)
             : `Explica ${np} y ${other}, y cómo se relacionan.`;
-          return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`, keyPoints: [...new Set([...keyIdeas(s.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
+          return { ...base(f, "open"), focus: `${ucFirst(np)} y ${other}`, prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`, keyPoints: [...new Set([...keyIdeas(s.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
         }
       }
       // La pregunta pide solo lo que el material contesta: «¿qué es…?» únicamente si hay definición.
@@ -518,10 +555,15 @@ function generateLocal(files, cfg) {
     for (const f of ranked) {
       if (!usable(f, type)) continue;
       const q = build[type](f);
-      if (q && saneQuestion(q) && !questions.some((x) => x.prompt === q.prompt)) { made = q; mark(f, type); break; }
+      if (q && saneQuestion(q) && !questions.some((x) => x.prompt === q.prompt)) {
+        // Si el concepto preguntado es la respuesta, el subtema describe lo que se pregunta sin nombrarlo.
+        if (revealsAnswer(q)) q.focus = f.term ? (f.term.refs ? `Autores: ${refNames(f.term.desc).slice(0, 3).join(", ")}` : shortPhrase(f.term.desc))
+          : f.subj ? (f.subj.def ? shortPhrase(f.subj.def) : shortPhrase(f.subj.pred, 6, true)) : q.focus;
+        made = q; mark(f, type); break;
+      }
     }
     if (made) questions.push(made);
   }
   if (!questions.length) throw new Error("No se pudieron generar preguntas con este material en modo demo: tiene muy pocas oraciones completas. Prueba con documentos Word, PDF o de texto con párrafos completos, o usa With Gemini o tu cuenta de Claude.");
-  return { questions: shuffle(questions.map((q) => ({ ...q, prompt: ucFirst(cleanPrompt(q.prompt)) }))), coverage: 100 };
+  return { questions: shuffle(questions.map((q) => safeFocus({ ...q, prompt: ucFirst(cleanPrompt(q.prompt)) }))), coverage: 100 };
 }

@@ -19,13 +19,18 @@ const ICONS = {
 };
 const Icon = ({ name, size = 18, stroke = 2 }) => html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=${stroke} stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d=${ICONS[name]} /></svg>`;
 const Spinner = () => html`<span className="spin" aria-hidden="true"></span>`;
+// Tema principal de la pregunta y, al lado y subrayado, el subtema concreto al que se refiere.
+const TopicHead = ({ q, small }) => (q.topic ? html`<div className=${"q-topic" + (small ? " is-small" : "")}>
+  <span className="q-topic-main">${q.topic}</span>
+  ${q.focus && html`<span className="q-topic-sep" aria-hidden="true">›</span><span className="q-focus">${q.focus}</span>`}
+</div>` : null);
 
 function Brand({ small }) {
   return html`<div className="flex items-center gap-2 select-none">
-    <span className=${"grid place-items-center rounded-lg flat tone-butter " + (small ? "w-7 h-7" : "w-9 h-9")} style=${{ boxShadow: "2px 2px 0 rgb(var(--line))" }}>
+    <span className=${"brand-mark " + (small ? "w-8 h-8" : "w-10 h-10")}>
       <svg width=${small ? 15 : 19} height=${small ? 15 : 19} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 19l7-14 2 4M9 15h8l3 4" /></svg>
     </span>
-    <span className=${"font-extrabold tracking-tight " + (small ? "text-[17px]" : "text-xl")} style=${{ fontFamily: "var(--font-display)" }}>StudyMaster<span className="ml-1 px-1.5 rounded-md text-[0.72em] align-[2px]" style=${{ background: "rgb(var(--accent))", color: "rgb(var(--accent-ink))" }}>AI</span></span>
+    <span className=${"font-extrabold tracking-tight " + (small ? "text-[17px]" : "text-xl")} style=${{ fontFamily: "var(--font-display)" }}>StudyMaster<span className="brand-ai ml-1 px-1.5 rounded-md text-[0.72em] align-[2px]">AI</span></span>
   </div>`;
 }
 
@@ -56,12 +61,12 @@ const IconTile = ({ name, tone, size = 20, className = "" }) => html`<span class
 const HeroPreview = () => html`<div className="hero-preview hidden 2xl:block" aria-hidden="true">
   <div className="card q-card p-5 flex flex-col gap-3">
     <div className="flex items-center gap-2"><span className="pill tone-lav">Selección múltiple</span><span className="ml-auto eyebrow">3 / 10</span></div>
-    <div className="flex items-center gap-2"><span className="eyebrow">Temática</span><b style=${{ fontFamily: "var(--font-display)" }}>La célula</b></div>
+    <${TopicHead} q=${{ topic: "La célula", focus: "Producción de energía" }} small />
     <p className="font-bold leading-snug" style=${{ fontFamily: "var(--font-display)" }}>¿A qué orgánulo corresponde esta afirmación? «____ produce la mayor parte del ATP de la célula.»</p>
     ${[["A", "El núcleo", ""], ["B", "La mitocondria", "is-correct"], ["C", "El ribosoma", ""]].map(([k, t, c]) => html`<div key=${k} className=${"option !text-[15px] !py-2.5 " + c}><span className="key">${k}</span>${t}</div>`)}
     <p className="rounded-xl p-2.5 text-sm verdict-ok"><b>¡Correcto!</b> Según tus apuntes, página 2.</p>
   </div>
-  <div className="hero-badge flat tone-butter"><span className="mono text-2xl font-bold">92%</span><span className="text-xs font-bold">Dominio total</span></div>
+  <div className="hero-badge"><span className="mono text-2xl font-bold">92%</span><span className="text-xs font-bold">Dominio total</span></div>
 </div>`;
 
 function LoginScreen({ onChoose, notice }) {
@@ -84,9 +89,9 @@ function LoginScreen({ onChoose, notice }) {
         <div className="eyebrow flex items-center gap-2"><span className="w-2 h-2 rounded-full" style=${{ background: "rgb(var(--accent))" }}></span>Tu espacio de estudio</div>
         <h1 className="text-[2.4rem] sm:text-[3.2rem] xl:text-[3.9rem] leading-[1.02] font-extrabold">Convierte tus apuntes en <span className="marker">exámenes</span> que de verdad enseñan.</h1>
         <p className="text-[17px] max-w-[40rem]" style=${muted}>Sube tus documentos o fotos de tus cuadernos y StudyMaster te prepara un test con preguntas sacadas de tu propio material, como lo haría tu profesor más exigente.</p>
-        <div className="flex flex-wrap gap-2">
-          ${MODE_KEYS.map((m) => html`<span key=${m} className=${"chip tone-" + MODES[m].tone}>${MODES[m].label}</span>`)}
-          <span className="chip jq-badge" style=${{ border: 0 }}>♛ Nivel Jacqueline</span>
+        <div className="flex flex-wrap gap-2.5 py-1">
+          ${MODE_KEYS.map((m) => html`<span key=${m} className=${"tag tag-" + MODES[m].tone}>${MODES[m].label}</span>`)}
+          <span className="tag jq-badge !text-[11px]">♛ Nivel Jacqueline</span>
         </div>
       </div>
       <${HeroPreview} />
@@ -314,15 +319,15 @@ function Header({ session, step, enabled, onStep, onRename, onMenu, modeLabel, m
         <button className="p-1.5 rounded-md opacity-60 hover:opacity-100" onClick=${() => setEditing(true)} aria-label="Renombrar sesión"><${Icon} name="pencil" size=${16} /></button>`}
     </div>
     <div className="flex flex-wrap items-center gap-2">
-    <ol className="flex flex-wrap gap-2" aria-label="Pasos">
+    <ol className="steps" aria-label="Pasos">
       ${STEPS.map(([key, label], i) => {
         const active = step === key, ok = enabled[key];
         return html`<li key=${key}><button disabled=${!ok} onClick=${() => onStep(key)} aria-current=${active ? "step" : undefined}
-          className=${"step-tab " + (active ? "tone-butter" : "")}>
+          className="step-tab">
           <span className="step-num">${i + 1}</span>${label}</button></li>`;
       })}
     </ol>
-    <span className=${"pill border-2 ml-auto tone-" + ({ gemini: "sky", claude: "lav", api: "peach", demo: "butter" }[modeKind] || "butter")} style=${{ borderColor: "rgb(var(--line))" }} title="Modo activo" aria-label=${"Modo activo: " + modeLabel}>
+    <span className=${"pill ml-auto shadow-sm tone-" + ({ gemini: "sky", claude: "lav", api: "peach", demo: "butter" }[modeKind] || "butter")} title="Modo activo" aria-label=${"Modo activo: " + modeLabel}>
       <span className="w-2 h-2 rounded-full" style=${{ background: modeKind === "demo" ? "rgb(var(--muted))" : "rgb(var(--ok))" }}></span>${modeLabel}
     </span>
     </div>
@@ -409,7 +414,7 @@ function ApiPanel({ api, setApi }) {
 
 // Paso numerado del panel guiado (fuera del panel para que el campo de la key no se recree al escribir).
 const GuideStep = ({ n, done, children }) => html`<li className="flex gap-3">
-    <span className=${"mono font-bold w-7 h-7 shrink-0 grid place-items-center rounded-md border-2 " + (done ? "tone-mint" : "")} style=${{ borderColor: "rgb(var(--line))", background: done ? undefined : "rgb(var(--surface))" }}>${done ? "✓" : n}</span>
+    <span className=${"font-extrabold w-7 h-7 shrink-0 grid place-items-center rounded-full " + (done ? "tone-mint" : "")} style=${{ background: done ? undefined : "rgb(var(--sun))", color: done ? undefined : "rgb(26 26 34)" }}>${done ? "✓" : n}</span>
     <div className="min-w-0 flex-1 flex flex-col gap-2 pt-0.5">${children}</div>
 </li>`;
 
@@ -733,18 +738,18 @@ function QuizStep({ quiz, aiOk, onChoice, onSubmitText, onSelfEval, onAIValidate
         <span className="mono pill tone-mint">✓ ${correctCount}/${answeredCount}</span>
       </div>
     </div>
-    <div className="h-2.5 rounded-full overflow-hidden border-2" style=${{ borderColor: "rgb(var(--line))", background: "rgb(var(--surface))" }}>
+    <div className="progress">
       <div className="progress-fill h-full transition-all" style=${{ width: `${((quiz.current + (resolved ? 1 : 0)) / quiz.questions.length) * 100}%`, background: "rgb(var(--accent))" }}></div>
     </div>
 
-    <article className="q-card card flat !rounded-3xl p-5 md:p-7 flex flex-col gap-5 pop" key=${q.id}>
-      <div className="flex flex-wrap items-center gap-2">
+    <article className="q-card card p-5 md:p-7 flex flex-col gap-5 pop" key=${q.id}>
+      <${TopicHead} q=${q} />
+      <div className="flex flex-wrap items-center gap-2 -mt-2">
         <span className=${"chip tone-" + mode.tone}>${mode.label}</span>
         <span className="text-xs" style=${{ color: "rgb(var(--muted))" }}>${q.source.doc}${q.source.loc ? " · " + q.source.loc : ""}</span>
         <span className="ml-auto text-xs eyebrow">${q.type === "multiple_choice" || q.type === "true_false" ? "Corrección inmediata" : "Respuesta escrita"}</span>
       </div>
 
-      ${q.topic && html`<div className="flex items-center gap-2 -mb-2"><span className="eyebrow">Temática</span><span className="font-bold text-[15px] truncate" style=${{ fontFamily: "var(--font-display)" }}>${q.topic}</span></div>`}
       ${q.type === "fill_blank"
         ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium whitespace-pre-line">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${"hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1)}
             onInput=${(e) => { const v = [...values]; v[i] = e.target.value; setValues(v); }} onKeyDown=${(e) => { if (e.key === "Enter" && !a) { e.preventDefault(); submitText(); } }} />`}</span>`)}</p>`
@@ -852,7 +857,7 @@ function ResultsStep({ quiz, generating, onRetry, onNewQuestions, onUpload }) {
           </div>`)}
         </div>
         ${quiz.attempts?.length > 0 && html`<p className="text-sm" style=${{ color: "rgb(var(--muted))" }}>Intentos anteriores: ${quiz.attempts.map((x) => x.pct + "%").join(" · ")}</p>`}
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap gap-2 pt-1 [&>button]:!whitespace-normal [&>button]:text-left">
           <button className="btn btn-primary" onClick=${onRetry}><${Icon} name="refresh" size=${16} /> Reintentar con las mismas preguntas</button>
           <button className="btn btn-ghost" disabled=${!!generating} onClick=${onNewQuestions}>${generating ? html`<${Spinner} />` : html`<${Icon} name="spark" size=${16} />`} Generar nuevas preguntas de estos documentos</button>
           <button className="btn btn-ghost" onClick=${onUpload}><${Icon} name="upload" size=${16} /> Subir nuevos archivos</button>
@@ -875,7 +880,7 @@ function ResultsStep({ quiz, generating, onRetry, onNewQuestions, onUpload }) {
           return html`<li key=${q.id} className="rounded-2xl border-2 overflow-hidden" style=${{ borderColor: ok ? "rgb(var(--ok))" : a ? "rgb(var(--bad))" : "rgb(var(--line-soft))" }}>
             <button className="w-full text-left p-3 md:p-4 flex items-start gap-3" onClick=${() => toggle(q.id)} aria-expanded=${isOpen}>
               <span className="mono text-sm font-bold w-7 h-7 shrink-0 grid place-items-center rounded-md" style=${{ background: ok ? "rgb(var(--ok))" : a ? "rgb(var(--bad))" : "rgb(var(--surface-2))", color: a ? "rgb(var(--surface))" : "rgb(var(--ink))" }}>${i + 1}</span>
-              <span className="min-w-0 flex-1">${q.topic && html`<span className="block eyebrow mb-1">${q.topic}</span>`}<span className=${"chip mr-2 tone-" + MODES[q.type].tone}>${MODES[q.type].label}</span><span className="font-medium">${q.prompt.length > 160 && !isOpen ? q.prompt.slice(0, 160) + "…" : q.prompt}</span></span>
+              <span className="min-w-0 flex-1 flex flex-col gap-1.5"><${TopicHead} q=${q} small /><span><span className=${"chip mr-2 tone-" + MODES[q.type].tone}>${MODES[q.type].label}</span><span className="font-medium whitespace-pre-line">${q.prompt}</span></span></span>
               <span className="text-sm font-bold shrink-0" style=${{ color: ok ? "rgb(var(--ok))" : "rgb(var(--bad))" }}>${ok ? "✓" : a ? "✗" : "—"}</span>
             </button>
             ${isOpen && html`<div className="px-4 pb-4 grid md:grid-cols-2 gap-3 text-[15px]">

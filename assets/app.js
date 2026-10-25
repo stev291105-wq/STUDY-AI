@@ -477,10 +477,10 @@ const DIFF_SPEC = {
   jacqueline: "NIVEL JACQUELINE (maestro/extremo): preguntas ultra-específicas (cifras, fechas, nombres, condiciones, excepciones y matices, incluidos detalles de imágenes, notas del orador y apuntes manuscritos), capciosas pero justas (absolutos, negaciones, una sola palabra crítica cambiada, opciones casi idénticas) y de correlación avanzada entre secciones y entre documentos distintos. Exigen dominio absoluto de cada detalle. Cada pregunta tiene UNA respuesta inequívocamente correcta según el material.",
 };
 const TYPE_FORMAT = {
-  multiple_choice: (d) => `{"type":"multiple_choice","prompt":"enunciado","options":[${d === "jacqueline" ? "5" : "4"} opciones],"answer_index":0,"explanation":"justificación breve","topic":"temática","source_document":"nombre exacto","source_location":"ubicación exacta"} — exactamente una correcta, sin "todas/ninguna de las anteriores"`,
-  true_false: () => `{"type":"true_false","prompt":"afirmación (no pregunta)","answer_bool":true,"explanation":"...","topic":"temática","source_document":"...","source_location":"..."} — equilibra verdaderas y falsas`,
-  fill_blank: (d) => `{"type":"fill_blank","prompt":"oración clave con cada concepto omitido escrito como ____","answers":[["respuesta","variante aceptable"]],"explanation":"...","topic":"temática","source_document":"...","source_location":"..."} — ${d === "jacqueline" ? "1 a 3" : "1 o 2"} huecos; un arreglo de variantes por hueco, en orden`,
-  open: () => `{"type":"open","prompt":"pregunta de desarrollo","model_answer":"respuesta oficial completa basada en el documento","key_points":["3 a 5 ideas clave"],"explanation":"...","topic":"temática","source_document":"...","source_location":"..."}`,
+  multiple_choice: (d) => `{"type":"multiple_choice","prompt":"enunciado","options":[${d === "jacqueline" ? "5" : "4"} opciones],"answer_index":0,"explanation":"justificación breve","topic":"temática","focus":"subtema concreto","source_document":"nombre exacto","source_location":"ubicación exacta"} — exactamente una correcta, sin "todas/ninguna de las anteriores"`,
+  true_false: () => `{"type":"true_false","prompt":"afirmación (no pregunta)","answer_bool":true,"explanation":"...","topic":"temática","focus":"subtema concreto","source_document":"...","source_location":"..."} — equilibra verdaderas y falsas`,
+  fill_blank: (d) => `{"type":"fill_blank","prompt":"oración clave con cada concepto omitido escrito como ____","answers":[["respuesta","variante aceptable"]],"explanation":"...","topic":"temática","focus":"subtema concreto","source_document":"...","source_location":"..."} — ${d === "jacqueline" ? "1 a 3" : "1 o 2"} huecos; un arreglo de variantes por hueco, en orden`,
+  open: () => `{"type":"open","prompt":"pregunta de desarrollo","model_answer":"respuesta oficial completa basada en el documento","key_points":["3 a 5 ideas clave"],"explanation":"...","topic":"temática","focus":"subtema concreto","source_document":"...","source_location":"..."}`,
 };
 
 function normalizeQuestion(r) {
@@ -489,7 +489,10 @@ function normalizeQuestion(r) {
     topic: cleanTopic(String(r?.topic || "").trim()).slice(0, 80),
     source: { doc: String(r?.source_document || ""), loc: String(r?.source_location || "") },
   };
+  // Subtema concreto de la pregunta (se muestra subrayado junto a la temática); se descarta si repite la temática.
+  q.focus = cleanTopic(String(r?.focus || "").trim()).slice(0, 70);
   if (!q.topic || /^general$/i.test(q.topic)) q.topic = q.source.loc && !/^(p[aá]gina|fragmento|texto)/i.test(q.source.loc) ? q.source.loc : docTitle(q.source.doc || "Material de estudio");
+  if (q.focus && normalize(q.focus) === normalize(q.topic)) q.focus = "";
   if (!MODES[q.type] || !q.prompt) return null;
   if (q.type === "multiple_choice") {
     const opts = (r.options || []).map((o) => String(o).trim()).filter(Boolean);
@@ -529,6 +532,7 @@ Genera exactamente ${chunk.length} preguntas con esta distribución:
 ${counts.map(([m, n]) => `- ${n} de tipo ${m}: ${TYPE_FORMAT[m](cfg.difficulty)}`).join("\n")}
 
 Reglas generales: todo debe poder responderse con el material; cubre documentos y secciones de forma equilibrada; escribe en el idioma del material; mezcla los tipos; en "explanation" justifica con el material; usa en "source_document" el nombre exacto del documento y en "source_location" la etiqueta de ubicación (p. ej. "Página 4"). No uses palabras marcadas con [?] o [ilegible].
+"focus": el subtema o concepto concreto (1 a 6 palabras) sobre el que trata exactamente la pregunta dentro de "topic" (p. ej. topic "Respiración celular" y focus "Ciclo de Krebs"); debe ser distinto de "topic" y no revelar la respuesta en preguntas de completar o de selección.
 "topic": título breve (2 a 6 palabras) de la temática del documento a la que pertenece la pregunta: usa el título de la sección, diapositiva, capítulo o apartado de donde sale; si no hay título, nombra el tema concreto (p. ej. "Respiración celular"), nunca "General" ni el nombre del archivo.
 
 Calidad obligatoria (sentido y lógica):
@@ -547,7 +551,7 @@ ${material.text}
 
 Responde SOLO con JSON: {"questions":[ ... ]}`;
     const res = await ai.callJSON(prompt, { tier: cfg.difficulty === "hard" || cfg.difficulty === "jacqueline" ? "complex" : "default" });
-    for (const r of Array.isArray(res?.questions) ? res.questions : []) { const q = normalizeQuestion(r); if (q && saneQuestion(q)) questions.push(q); }
+    for (const r of Array.isArray(res?.questions) ? res.questions : []) { const q = normalizeQuestion(r); if (q && saneQuestion(q)) questions.push(safeFocus(q)); }
     if (ci === 0 && !questions.length) throw { code: "empty_completion" };
   }
   return { questions, coverage: material.coverage };
@@ -916,6 +920,35 @@ const contentWords = (t) => normalize(t).split(" ").filter((w) => w.length > 2 &
 const overlaps = (x, y) => { const A = contentWords(x), B = contentWords(y); return !A.length || !B.length || A.every((w) => B.includes(w)) || B.every((w) => A.includes(w)); };
 const sameConcept = (a, b) => normalize(a.subj.noun) === normalize(b.subj.noun) || overlaps(a.subj.noun, b.subj.noun);
 
+/** ¿El subtema delata la respuesta? (en selección y completar no puede nombrarla). */
+function revealsAnswer(q) {
+  if (!q.focus) return false;
+  const ans = (q.type === "multiple_choice" ? [q.options?.[q.answerIndex]] : q.type === "fill_blank" ? (q.answers || []).flat() : []).filter(Boolean).map(String);
+  return ans.some((a) => contentWords(a).length && (overlaps(a, q.focus) || normalize(q.focus).includes(normalize(a))));
+}
+// Frase nominal corta para usar como subtema: «está formado por microtúbulos, microfilamentos…» → «Microtúbulos, microfilamentos y filamentos».
+function shortPhrase(t, n = 6, pred = false) {
+  const LEADING = /^(no|se|lo|le|les|que|por|de|del|en|con|a|al|entre|para|el|la|los|las|un|una|unos|unas|muy|más|tan|solo)$/i;
+  const verbish = (w) => VERB_WORDS.has(normalize(w)) || /(?:ado|ada|ados|adas|ido|ida|idos|idas|aba|aban|ía|ían|ó|aron|ieron)$/i.test(w);
+  let w = String(t).replace(/[«»"“”]/g, "").replace(new RegExp(BLANK, "g"), " ").split(/\s+/).filter(Boolean);
+  if (pred && w.length > 2) w.shift();
+  while (w.length > 2 && (LEADING.test(bare(w[0])) || verbish(bare(w[0])))) w.shift();
+  const out = [];
+  for (const x of w) { if (out.length && (/^que$/i.test(bare(x)) || verbish(bare(x)))) break; out.push(x); if (out.length >= n || /[.;:]$/.test(x)) break; }
+  while (out.length > 1 && (isStop(bare(out[out.length - 1])) || /,$/.test(out[out.length - 1]) && out.length > 2 && isStop(bare(out[out.length - 2])))) out.pop();
+  const res = out.join(" ").replace(/[,;:.]+$/, "");
+  // Una cifra suelta («1839 por…») no nombra un tema: se usan las ideas clave del texto.
+  if (!res || /^\d/.test(res)) { const k = keyIdeas(t, 2); return k.length ? ucFirst(k.join(" y ")) : ""; }
+  return ucFirst(res);
+}
+/** Si el subtema delata la respuesta, se cambia por una idea del enunciado que no la nombra. */
+function safeFocus(q) {
+  if (!revealsAnswer(q)) return q;
+  const ans = (q.type === "multiple_choice" ? [q.options?.[q.answerIndex]] : (q.answers || []).flat()).map(String);
+  const alt = keyIdeas(q.prompt.split(BLANK).join(" "), 4, ans.join(" ")).find((w) => !ans.some((a) => normalize(a).includes(normalize(w))));
+  return { ...q, focus: alt ? ucFirst(alt) : "" };
+}
+
 /** Revisión final de sentido: descarta preguntas mal formadas, venga de la IA o de las reglas. */
 function saneQuestion(q) {
   if (!q || !q.prompt || q.prompt.replace(new RegExp(BLANK, "g"), "").trim().length < 12) return false;
@@ -974,7 +1007,12 @@ function generateLocal(files, cfg) {
   const used = new Map(); // id del hecho → tipos ya usados
   const mark = (f, type) => used.set(f.id, [...(used.get(f.id) || []), type]);
   const usable = (f, type) => !(used.get(f.id) || []).includes(type) && (used.get(f.id) || []).length < 2;
-  const base = (f, type) => ({ id: uid(), type, topic: f.topic, explanation: cite(f), source: { doc: f.doc, loc: f.loc } });
+  // Subtema concreto de cada pregunta: el concepto del que trata (se muestra subrayado junto a la temática).
+  const focusOf = (f) => {
+    const t = f.term ? f.term.name : f.subj ? ucFirst(f.subj.npText) : (keyIdeas(f.text, 1)[0] || "");
+    return t && normalize(t) !== normalize(f.topic) ? ucFirst(t) : "";
+  };
+  const base = (f, type) => ({ id: uid(), type, topic: f.topic, focus: focusOf(f), explanation: cite(f), source: { doc: f.doc, loc: f.loc } });
 
   const build = {
     multiple_choice(f) {
@@ -1028,9 +1066,12 @@ function generateLocal(files, cfg) {
       const falses = [];
       if (f.subj) {
         // Otro concepto comparable del mismo documento: fácil → de otro tema; difícil → del mismo tema (más sutil).
-        const pool = peers(f, { sameTopic: hard && peers(f, { sameTopic: true }).length > 0 });
-        const pick = d === "easy" ? pool.find((x) => x.topic !== T) || pool[0] : pool[0];
-        if (pick) falses.push({ text: swapSubject(f, pick), why: contract(`El material atribuye esto a ${npLower(f.subj)}, no a ${npLower(pick.subj)}.`) });
+        // Solo se cambia por un concepto relacionado (comparten ideas del texto o el mismo tema), para que la falsa sea plausible.
+        const mine = new Set(contentWords(f.subj.pred));
+        const related = (x) => contentWords(x.subj.pred).filter((w) => mine.has(w)).length + (normalize(x.subj.noun.split(" ")[0]) === normalize(f.subj.noun.split(" ")[0]) ? 2 : 0);
+        const pool = peers(f).map((x) => ({ x, r: related(x) })).filter((p) => p.r > 0).sort((a, b) => b.r - a.r + (b.x.topic === T) - (a.x.topic === T)).map((p) => p.x);
+        const pick = pool[0];
+        if (pick) falses.push({ text: swapSubject(f, pick), focus: ucFirst(npLower(pick.subj)), why: contract(`El material atribuye esto a ${npLower(f.subj)}, no a ${npLower(pick.subj)}.`) });
         if (f.subj.def) falses.push({ text: replaceOnce(f.text, ` ${f.subj.copula} `, ` no ${f.subj.copula} `), why: `El material afirma lo contrario.` });
       }
       if (f.numbers.length) {
@@ -1043,7 +1084,7 @@ function generateLocal(files, cfg) {
       const pickFalse = order.find((x) => !sentences.has(normalize(x.text)) && x.text !== f.text);
       const ask = (text) => `${lead(f)}${text}`;
       if (!pickFalse || Math.random() < 0.45) return f.subj || f.numbers.length ? { ...b, prompt: ask(f.text), answerBool: true, explanation: `Es verdadera: el material lo afirma así.\n${cite(f)}` } : null;
-      return { ...b, prompt: ask(pickFalse.text), answerBool: false, explanation: `Es falsa. ${pickFalse.why}\n${cite(f)}` };
+      return { ...b, ...(pickFalse.focus ? { focus: pickFalse.focus } : {}), prompt: ask(pickFalse.text), answerBool: false, explanation: `Es falsa. ${pickFalse.why}\n${cite(f)}` };
     },
 
     fill_blank(f) {
@@ -1090,7 +1131,7 @@ function generateLocal(files, cfg) {
             const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}» y cuáles a «${pair.term.name}»?`
               : t.person ? `¿Con qué se asocia a ${t.name} y con qué a ${pair.term.name}?`
               : `Explica y diferencia «${t.name}» y «${pair.term.name}».`;
-            return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n${card(pair)}`, keyPoints: t.refs ? [...refNames(t.desc).slice(0, 2), ...refNames(pair.term.desc).slice(0, 2)] : [...keyIdeas(t.desc, 2), ...keyIdeas(pair.term.desc, 2)], explanation: `${cite(f)}\n${cite(pair)}` };
+            return { ...base(f, "open"), focus: `${t.name} y ${pair.term.name}`, prompt, modelAnswer: `${card(f)}\n${card(pair)}`, keyPoints: t.refs ? [...refNames(t.desc).slice(0, 2), ...refNames(pair.term.desc).slice(0, 2)] : [...keyIdeas(t.desc, 2), ...keyIdeas(pair.term.desc, 2)], explanation: `${cite(f)}\n${cite(pair)}` };
           }
         }
         const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}»?`
@@ -1116,7 +1157,7 @@ function generateLocal(files, cfg) {
             ? (comparable ? `Compara ${np} y ${other}: ¿en qué se parecen y en qué se diferencian? Sé preciso con los datos.`
               : `¿Qué relación hay entre ${np} y ${other}? Explícala con datos concretos.`)
             : `Explica ${np} y ${other}, y cómo se relacionan.`;
-          return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`, keyPoints: [...new Set([...keyIdeas(s.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
+          return { ...base(f, "open"), focus: `${ucFirst(np)} y ${other}`, prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`, keyPoints: [...new Set([...keyIdeas(s.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
         }
       }
       // La pregunta pide solo lo que el material contesta: «¿qué es…?» únicamente si hay definición.
@@ -1135,12 +1176,17 @@ function generateLocal(files, cfg) {
     for (const f of ranked) {
       if (!usable(f, type)) continue;
       const q = build[type](f);
-      if (q && saneQuestion(q) && !questions.some((x) => x.prompt === q.prompt)) { made = q; mark(f, type); break; }
+      if (q && saneQuestion(q) && !questions.some((x) => x.prompt === q.prompt)) {
+        // Si el concepto preguntado es la respuesta, el subtema describe lo que se pregunta sin nombrarlo.
+        if (revealsAnswer(q)) q.focus = f.term ? (f.term.refs ? `Autores: ${refNames(f.term.desc).slice(0, 3).join(", ")}` : shortPhrase(f.term.desc))
+          : f.subj ? (f.subj.def ? shortPhrase(f.subj.def) : shortPhrase(f.subj.pred, 6, true)) : q.focus;
+        made = q; mark(f, type); break;
+      }
     }
     if (made) questions.push(made);
   }
   if (!questions.length) throw new Error("No se pudieron generar preguntas con este material en modo demo: tiene muy pocas oraciones completas. Prueba con documentos Word, PDF o de texto con párrafos completos, o usa With Gemini o tu cuenta de Claude.");
-  return { questions: shuffle(questions.map((q) => ({ ...q, prompt: ucFirst(cleanPrompt(q.prompt)) }))), coverage: 100 };
+  return { questions: shuffle(questions.map((q) => safeFocus({ ...q, prompt: ucFirst(cleanPrompt(q.prompt)) }))), coverage: 100 };
 }
 
 /* =====================================================================
@@ -1394,13 +1440,18 @@ const ICONS = {
 };
 const Icon = ({ name, size = 18, stroke = 2 }) => html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=${stroke} stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d=${ICONS[name]} /></svg>`;
 const Spinner = () => html`<span className="spin" aria-hidden="true"></span>`;
+// Tema principal de la pregunta y, al lado y subrayado, el subtema concreto al que se refiere.
+const TopicHead = ({ q, small }) => (q.topic ? html`<div className=${"q-topic" + (small ? " is-small" : "")}>
+  <span className="q-topic-main">${q.topic}</span>
+  ${q.focus && html`<span className="q-topic-sep" aria-hidden="true">›</span><span className="q-focus">${q.focus}</span>`}
+</div>` : null);
 
 function Brand({ small }) {
   return html`<div className="flex items-center gap-2 select-none">
-    <span className=${"grid place-items-center rounded-lg flat tone-butter " + (small ? "w-7 h-7" : "w-9 h-9")} style=${{ boxShadow: "2px 2px 0 rgb(var(--line))" }}>
+    <span className=${"brand-mark " + (small ? "w-8 h-8" : "w-10 h-10")}>
       <svg width=${small ? 15 : 19} height=${small ? 15 : 19} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 19l7-14 2 4M9 15h8l3 4" /></svg>
     </span>
-    <span className=${"font-extrabold tracking-tight " + (small ? "text-[17px]" : "text-xl")} style=${{ fontFamily: "var(--font-display)" }}>StudyMaster<span className="ml-1 px-1.5 rounded-md text-[0.72em] align-[2px]" style=${{ background: "rgb(var(--accent))", color: "rgb(var(--accent-ink))" }}>AI</span></span>
+    <span className=${"font-extrabold tracking-tight " + (small ? "text-[17px]" : "text-xl")} style=${{ fontFamily: "var(--font-display)" }}>StudyMaster<span className="brand-ai ml-1 px-1.5 rounded-md text-[0.72em] align-[2px]">AI</span></span>
   </div>`;
 }
 
@@ -1431,12 +1482,12 @@ const IconTile = ({ name, tone, size = 20, className = "" }) => html`<span class
 const HeroPreview = () => html`<div className="hero-preview hidden 2xl:block" aria-hidden="true">
   <div className="card q-card p-5 flex flex-col gap-3">
     <div className="flex items-center gap-2"><span className="pill tone-lav">Selección múltiple</span><span className="ml-auto eyebrow">3 / 10</span></div>
-    <div className="flex items-center gap-2"><span className="eyebrow">Temática</span><b style=${{ fontFamily: "var(--font-display)" }}>La célula</b></div>
+    <${TopicHead} q=${{ topic: "La célula", focus: "Producción de energía" }} small />
     <p className="font-bold leading-snug" style=${{ fontFamily: "var(--font-display)" }}>¿A qué orgánulo corresponde esta afirmación? «____ produce la mayor parte del ATP de la célula.»</p>
     ${[["A", "El núcleo", ""], ["B", "La mitocondria", "is-correct"], ["C", "El ribosoma", ""]].map(([k, t, c]) => html`<div key=${k} className=${"option !text-[15px] !py-2.5 " + c}><span className="key">${k}</span>${t}</div>`)}
     <p className="rounded-xl p-2.5 text-sm verdict-ok"><b>¡Correcto!</b> Según tus apuntes, página 2.</p>
   </div>
-  <div className="hero-badge flat tone-butter"><span className="mono text-2xl font-bold">92%</span><span className="text-xs font-bold">Dominio total</span></div>
+  <div className="hero-badge"><span className="mono text-2xl font-bold">92%</span><span className="text-xs font-bold">Dominio total</span></div>
 </div>`;
 
 function LoginScreen({ onChoose, notice }) {
@@ -1459,9 +1510,9 @@ function LoginScreen({ onChoose, notice }) {
         <div className="eyebrow flex items-center gap-2"><span className="w-2 h-2 rounded-full" style=${{ background: "rgb(var(--accent))" }}></span>Tu espacio de estudio</div>
         <h1 className="text-[2.4rem] sm:text-[3.2rem] xl:text-[3.9rem] leading-[1.02] font-extrabold">Convierte tus apuntes en <span className="marker">exámenes</span> que de verdad enseñan.</h1>
         <p className="text-[17px] max-w-[40rem]" style=${muted}>Sube tus documentos o fotos de tus cuadernos y StudyMaster te prepara un test con preguntas sacadas de tu propio material, como lo haría tu profesor más exigente.</p>
-        <div className="flex flex-wrap gap-2">
-          ${MODE_KEYS.map((m) => html`<span key=${m} className=${"chip tone-" + MODES[m].tone}>${MODES[m].label}</span>`)}
-          <span className="chip jq-badge" style=${{ border: 0 }}>♛ Nivel Jacqueline</span>
+        <div className="flex flex-wrap gap-2.5 py-1">
+          ${MODE_KEYS.map((m) => html`<span key=${m} className=${"tag tag-" + MODES[m].tone}>${MODES[m].label}</span>`)}
+          <span className="tag jq-badge !text-[11px]">♛ Nivel Jacqueline</span>
         </div>
       </div>
       <${HeroPreview} />
@@ -1689,15 +1740,15 @@ function Header({ session, step, enabled, onStep, onRename, onMenu, modeLabel, m
         <button className="p-1.5 rounded-md opacity-60 hover:opacity-100" onClick=${() => setEditing(true)} aria-label="Renombrar sesión"><${Icon} name="pencil" size=${16} /></button>`}
     </div>
     <div className="flex flex-wrap items-center gap-2">
-    <ol className="flex flex-wrap gap-2" aria-label="Pasos">
+    <ol className="steps" aria-label="Pasos">
       ${STEPS.map(([key, label], i) => {
         const active = step === key, ok = enabled[key];
         return html`<li key=${key}><button disabled=${!ok} onClick=${() => onStep(key)} aria-current=${active ? "step" : undefined}
-          className=${"step-tab " + (active ? "tone-butter" : "")}>
+          className="step-tab">
           <span className="step-num">${i + 1}</span>${label}</button></li>`;
       })}
     </ol>
-    <span className=${"pill border-2 ml-auto tone-" + ({ gemini: "sky", claude: "lav", api: "peach", demo: "butter" }[modeKind] || "butter")} style=${{ borderColor: "rgb(var(--line))" }} title="Modo activo" aria-label=${"Modo activo: " + modeLabel}>
+    <span className=${"pill ml-auto shadow-sm tone-" + ({ gemini: "sky", claude: "lav", api: "peach", demo: "butter" }[modeKind] || "butter")} title="Modo activo" aria-label=${"Modo activo: " + modeLabel}>
       <span className="w-2 h-2 rounded-full" style=${{ background: modeKind === "demo" ? "rgb(var(--muted))" : "rgb(var(--ok))" }}></span>${modeLabel}
     </span>
     </div>
@@ -1784,7 +1835,7 @@ function ApiPanel({ api, setApi }) {
 
 // Paso numerado del panel guiado (fuera del panel para que el campo de la key no se recree al escribir).
 const GuideStep = ({ n, done, children }) => html`<li className="flex gap-3">
-    <span className=${"mono font-bold w-7 h-7 shrink-0 grid place-items-center rounded-md border-2 " + (done ? "tone-mint" : "")} style=${{ borderColor: "rgb(var(--line))", background: done ? undefined : "rgb(var(--surface))" }}>${done ? "✓" : n}</span>
+    <span className=${"font-extrabold w-7 h-7 shrink-0 grid place-items-center rounded-full " + (done ? "tone-mint" : "")} style=${{ background: done ? undefined : "rgb(var(--sun))", color: done ? undefined : "rgb(26 26 34)" }}>${done ? "✓" : n}</span>
     <div className="min-w-0 flex-1 flex flex-col gap-2 pt-0.5">${children}</div>
 </li>`;
 
@@ -2108,18 +2159,18 @@ function QuizStep({ quiz, aiOk, onChoice, onSubmitText, onSelfEval, onAIValidate
         <span className="mono pill tone-mint">✓ ${correctCount}/${answeredCount}</span>
       </div>
     </div>
-    <div className="h-2.5 rounded-full overflow-hidden border-2" style=${{ borderColor: "rgb(var(--line))", background: "rgb(var(--surface))" }}>
+    <div className="progress">
       <div className="progress-fill h-full transition-all" style=${{ width: `${((quiz.current + (resolved ? 1 : 0)) / quiz.questions.length) * 100}%`, background: "rgb(var(--accent))" }}></div>
     </div>
 
-    <article className="q-card card flat !rounded-3xl p-5 md:p-7 flex flex-col gap-5 pop" key=${q.id}>
-      <div className="flex flex-wrap items-center gap-2">
+    <article className="q-card card p-5 md:p-7 flex flex-col gap-5 pop" key=${q.id}>
+      <${TopicHead} q=${q} />
+      <div className="flex flex-wrap items-center gap-2 -mt-2">
         <span className=${"chip tone-" + mode.tone}>${mode.label}</span>
         <span className="text-xs" style=${{ color: "rgb(var(--muted))" }}>${q.source.doc}${q.source.loc ? " · " + q.source.loc : ""}</span>
         <span className="ml-auto text-xs eyebrow">${q.type === "multiple_choice" || q.type === "true_false" ? "Corrección inmediata" : "Respuesta escrita"}</span>
       </div>
 
-      ${q.topic && html`<div className="flex items-center gap-2 -mb-2"><span className="eyebrow">Temática</span><span className="font-bold text-[15px] truncate" style=${{ fontFamily: "var(--font-display)" }}>${q.topic}</span></div>`}
       ${q.type === "fill_blank"
         ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium whitespace-pre-line">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${"hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1)}
             onInput=${(e) => { const v = [...values]; v[i] = e.target.value; setValues(v); }} onKeyDown=${(e) => { if (e.key === "Enter" && !a) { e.preventDefault(); submitText(); } }} />`}</span>`)}</p>`
@@ -2227,7 +2278,7 @@ function ResultsStep({ quiz, generating, onRetry, onNewQuestions, onUpload }) {
           </div>`)}
         </div>
         ${quiz.attempts?.length > 0 && html`<p className="text-sm" style=${{ color: "rgb(var(--muted))" }}>Intentos anteriores: ${quiz.attempts.map((x) => x.pct + "%").join(" · ")}</p>`}
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap gap-2 pt-1 [&>button]:!whitespace-normal [&>button]:text-left">
           <button className="btn btn-primary" onClick=${onRetry}><${Icon} name="refresh" size=${16} /> Reintentar con las mismas preguntas</button>
           <button className="btn btn-ghost" disabled=${!!generating} onClick=${onNewQuestions}>${generating ? html`<${Spinner} />` : html`<${Icon} name="spark" size=${16} />`} Generar nuevas preguntas de estos documentos</button>
           <button className="btn btn-ghost" onClick=${onUpload}><${Icon} name="upload" size=${16} /> Subir nuevos archivos</button>
@@ -2250,7 +2301,7 @@ function ResultsStep({ quiz, generating, onRetry, onNewQuestions, onUpload }) {
           return html`<li key=${q.id} className="rounded-2xl border-2 overflow-hidden" style=${{ borderColor: ok ? "rgb(var(--ok))" : a ? "rgb(var(--bad))" : "rgb(var(--line-soft))" }}>
             <button className="w-full text-left p-3 md:p-4 flex items-start gap-3" onClick=${() => toggle(q.id)} aria-expanded=${isOpen}>
               <span className="mono text-sm font-bold w-7 h-7 shrink-0 grid place-items-center rounded-md" style=${{ background: ok ? "rgb(var(--ok))" : a ? "rgb(var(--bad))" : "rgb(var(--surface-2))", color: a ? "rgb(var(--surface))" : "rgb(var(--ink))" }}>${i + 1}</span>
-              <span className="min-w-0 flex-1">${q.topic && html`<span className="block eyebrow mb-1">${q.topic}</span>`}<span className=${"chip mr-2 tone-" + MODES[q.type].tone}>${MODES[q.type].label}</span><span className="font-medium">${q.prompt.length > 160 && !isOpen ? q.prompt.slice(0, 160) + "…" : q.prompt}</span></span>
+              <span className="min-w-0 flex-1 flex flex-col gap-1.5"><${TopicHead} q=${q} small /><span><span className=${"chip mr-2 tone-" + MODES[q.type].tone}>${MODES[q.type].label}</span><span className="font-medium whitespace-pre-line">${q.prompt}</span></span></span>
               <span className="text-sm font-bold shrink-0" style=${{ color: ok ? "rgb(var(--ok))" : "rgb(var(--bad))" }}>${ok ? "✓" : a ? "✗" : "—"}</span>
             </button>
             ${isOpen && html`<div className="px-4 pb-4 grid md:grid-cols-2 gap-3 text-[15px]">

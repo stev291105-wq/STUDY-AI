@@ -475,10 +475,10 @@ const DIFF_SPEC = {
   jacqueline: "NIVEL JACQUELINE (maestro/extremo): preguntas ultra-específicas (cifras, fechas, nombres, condiciones, excepciones y matices, incluidos detalles de imágenes, notas del orador y apuntes manuscritos), capciosas pero justas (absolutos, negaciones, una sola palabra crítica cambiada, opciones casi idénticas) y de correlación avanzada entre secciones y entre documentos distintos. Exigen dominio absoluto de cada detalle. Cada pregunta tiene UNA respuesta inequívocamente correcta según el material.",
 };
 const TYPE_FORMAT = {
-  multiple_choice: (d) => `{"type":"multiple_choice","prompt":"enunciado","options":[${d === "jacqueline" ? "5" : "4"} opciones],"answer_index":0,"explanation":"justificación breve","topic":"temática","source_document":"nombre exacto","source_location":"ubicación exacta"} — exactamente una correcta, sin "todas/ninguna de las anteriores"`,
-  true_false: () => `{"type":"true_false","prompt":"afirmación (no pregunta)","answer_bool":true,"explanation":"...","topic":"temática","source_document":"...","source_location":"..."} — equilibra verdaderas y falsas`,
-  fill_blank: (d) => `{"type":"fill_blank","prompt":"oración clave con cada concepto omitido escrito como ____","answers":[["respuesta","variante aceptable"]],"explanation":"...","topic":"temática","source_document":"...","source_location":"..."} — ${d === "jacqueline" ? "1 a 3" : "1 o 2"} huecos; un arreglo de variantes por hueco, en orden`,
-  open: () => `{"type":"open","prompt":"pregunta de desarrollo","model_answer":"respuesta oficial completa basada en el documento","key_points":["3 a 5 ideas clave"],"explanation":"...","topic":"temática","source_document":"...","source_location":"..."}`,
+  multiple_choice: (d) => `{"type":"multiple_choice","prompt":"enunciado","options":[${d === "jacqueline" ? "5" : "4"} opciones],"answer_index":0,"explanation":"justificación breve","topic":"temática","focus":"subtema concreto","source_document":"nombre exacto","source_location":"ubicación exacta"} — exactamente una correcta, sin "todas/ninguna de las anteriores"`,
+  true_false: () => `{"type":"true_false","prompt":"afirmación (no pregunta)","answer_bool":true,"explanation":"...","topic":"temática","focus":"subtema concreto","source_document":"...","source_location":"..."} — equilibra verdaderas y falsas`,
+  fill_blank: (d) => `{"type":"fill_blank","prompt":"oración clave con cada concepto omitido escrito como ____","answers":[["respuesta","variante aceptable"]],"explanation":"...","topic":"temática","focus":"subtema concreto","source_document":"...","source_location":"..."} — ${d === "jacqueline" ? "1 a 3" : "1 o 2"} huecos; un arreglo de variantes por hueco, en orden`,
+  open: () => `{"type":"open","prompt":"pregunta de desarrollo","model_answer":"respuesta oficial completa basada en el documento","key_points":["3 a 5 ideas clave"],"explanation":"...","topic":"temática","focus":"subtema concreto","source_document":"...","source_location":"..."}`,
 };
 
 function normalizeQuestion(r) {
@@ -487,7 +487,10 @@ function normalizeQuestion(r) {
     topic: cleanTopic(String(r?.topic || "").trim()).slice(0, 80),
     source: { doc: String(r?.source_document || ""), loc: String(r?.source_location || "") },
   };
+  // Subtema concreto de la pregunta (se muestra subrayado junto a la temática); se descarta si repite la temática.
+  q.focus = cleanTopic(String(r?.focus || "").trim()).slice(0, 70);
   if (!q.topic || /^general$/i.test(q.topic)) q.topic = q.source.loc && !/^(p[aá]gina|fragmento|texto)/i.test(q.source.loc) ? q.source.loc : docTitle(q.source.doc || "Material de estudio");
+  if (q.focus && normalize(q.focus) === normalize(q.topic)) q.focus = "";
   if (!MODES[q.type] || !q.prompt) return null;
   if (q.type === "multiple_choice") {
     const opts = (r.options || []).map((o) => String(o).trim()).filter(Boolean);
@@ -527,6 +530,7 @@ Genera exactamente ${chunk.length} preguntas con esta distribución:
 ${counts.map(([m, n]) => `- ${n} de tipo ${m}: ${TYPE_FORMAT[m](cfg.difficulty)}`).join("\n")}
 
 Reglas generales: todo debe poder responderse con el material; cubre documentos y secciones de forma equilibrada; escribe en el idioma del material; mezcla los tipos; en "explanation" justifica con el material; usa en "source_document" el nombre exacto del documento y en "source_location" la etiqueta de ubicación (p. ej. "Página 4"). No uses palabras marcadas con [?] o [ilegible].
+"focus": el subtema o concepto concreto (1 a 6 palabras) sobre el que trata exactamente la pregunta dentro de "topic" (p. ej. topic "Respiración celular" y focus "Ciclo de Krebs"); debe ser distinto de "topic" y no revelar la respuesta en preguntas de completar o de selección.
 "topic": título breve (2 a 6 palabras) de la temática del documento a la que pertenece la pregunta: usa el título de la sección, diapositiva, capítulo o apartado de donde sale; si no hay título, nombra el tema concreto (p. ej. "Respiración celular"), nunca "General" ni el nombre del archivo.
 
 Calidad obligatoria (sentido y lógica):
@@ -545,7 +549,7 @@ ${material.text}
 
 Responde SOLO con JSON: {"questions":[ ... ]}`;
     const res = await ai.callJSON(prompt, { tier: cfg.difficulty === "hard" || cfg.difficulty === "jacqueline" ? "complex" : "default" });
-    for (const r of Array.isArray(res?.questions) ? res.questions : []) { const q = normalizeQuestion(r); if (q && saneQuestion(q)) questions.push(q); }
+    for (const r of Array.isArray(res?.questions) ? res.questions : []) { const q = normalizeQuestion(r); if (q && saneQuestion(q)) questions.push(safeFocus(q)); }
     if (ci === 0 && !questions.length) throw { code: "empty_completion" };
   }
   return { questions, coverage: material.coverage };
