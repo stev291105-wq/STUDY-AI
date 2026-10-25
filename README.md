@@ -1,6 +1,6 @@
 # StudyMaster AI
 
-Convierte tus apuntes en cuestionarios. Sube PDF, Word, PowerPoint, exportaciones de Google Docs o Canva y fotos de cuadernos o pizarras. StudyMaster lee el texto, las imágenes y la letra a mano, y genera preguntas de selección múltiple, verdadero o falso, completar y desarrollo, en cuatro niveles: Fácil, Medio, Difícil y **Jacqueline** (maestro/extremo).
+Convierte tus apuntes en cuestionarios. Sube PDF, Word, PowerPoint, exportaciones de Google Docs o Canva y fotos de cuadernos o pizarras. StudyMaster lee el texto, las imágenes y la letra a mano, y genera preguntas de selección múltiple, verdadero o falso, completar y desarrollo, en cuatro niveles: Fácil, Medio, **Difícil (POVEDA)** y **Jacqueline** (maestro/extremo).
 
 **Web:** https://stev291105-wq.github.io/STUDY-AI/
 
@@ -23,7 +23,8 @@ Dónde conseguir una key: [Google AI Studio](https://aistudio.google.com/apikey)
 
 - Carga ilimitada de archivos y carpetas (arrastrar y soltar): PDF, DOCX, PPTX, PNG, JPG, WEBP, GIF, TXT/MD/CSV.
 - OCR de imágenes incrustadas y páginas escaneadas; lectura de manuscritos con IA (modos 2 y 3).
-- Hasta 3 modalidades combinadas (la cuarta se bloquea), 4 niveles de dificultad y de 1 a 100 preguntas.
+- Hasta 3 modalidades combinadas (la cuarta se bloquea), 4 niveles de dificultad y de 1 a 100 preguntas. Cada nivel cambia el tipo de pregunta: Fácil (definiciones y datos literales), Medio (identificar conceptos y palabras clave), **Difícil (POVEDA)** («¿cuál es correcta?», cifras exactas, dos huecos, relaciones) y Jacqueline («¿cuál es INCORRECTA?», afirmaciones compuestas, tres huecos y comparaciones entre temas o documentos).
+- El modo demo reparte las preguntas entre todos los apartados del material y no repite lo ya preguntado en la sesión: cada test nuevo usa otras partes del documento.
 - Los enunciados van directos y completos, sin mencionar documento, sección ni página. Cada pregunta muestra como título la **temática** y, al lado y subrayado, el **subtema concreto** que pregunta (en todos los modos: demo, Gemini, API keys y Claude); el subtema nunca delata la respuesta. La pregunta también se muestra completa en la revisión. del documento a la que pertenece (título del apartado, diapositiva o capítulo).
 - Preguntas con sentido: solo se usan oraciones completas (las líneas cortadas de PDF y OCR se unen antes), las opciones incorrectas concuerdan con la correcta, las afirmaciones falsas cambian un dato concreto y nunca se mezclan documentos distintos.
 - Corrección inmediata en selección múltiple y V/F; en completar y abiertas se muestra la **respuesta oficial del documento** con autoevaluación («✅ Respondí bien» / «❌ Me equivoqué») o validación con IA.

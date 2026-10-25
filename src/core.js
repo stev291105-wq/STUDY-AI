@@ -14,7 +14,7 @@ const MAX_MODES = 3;
 const DIFFS = {
   easy: { label: "Fácil", tone: "mint", hint: "Conceptos básicos y definiciones literales" },
   medium: { label: "Medio", tone: "sky", hint: "Comprensión, relación de conceptos y aplicación" },
-  hard: { label: "Difícil", tone: "rose", hint: "Análisis profundo, inferencia y casos prácticos" },
+  hard: { label: "Difícil (POVEDA)", tone: "rose", hint: "Análisis profundo, inferencia y casos prácticos" },
   jacqueline: { label: "Jacqueline", tone: "lav", hint: "Ultra-específicas, capciosas y de correlación entre documentos" },
 };
 const LETTERS = "ABCDEFGH";
@@ -469,10 +469,27 @@ function distribute(modes, total) {
 
 // ------------------------------------------------------------------ motores de IA (generación y validación)
 const DIFF_SPEC = {
-  easy: "NIVEL FÁCIL: preguntas directas sobre conceptos básicos y definiciones literales; la respuesta aparece casi textual en el material; distractores claramente distinguibles.",
-  medium: "NIVEL MEDIO: comprensión, relación entre conceptos y aplicación estándar; parafrasea en vez de copiar; distractores plausibles basados en confusiones típicas.",
-  hard: "NIVEL DIFÍCIL: análisis profundo, inferencia compleja y casos prácticos; la respuesta NO está escrita literalmente y exige combinar varias partes del material; distractores con errores conceptuales sofisticados.",
-  jacqueline: "NIVEL JACQUELINE (maestro/extremo): preguntas ultra-específicas (cifras, fechas, nombres, condiciones, excepciones y matices, incluidos detalles de imágenes, notas del orador y apuntes manuscritos), capciosas pero justas (absolutos, negaciones, una sola palabra crítica cambiada, opciones casi idénticas) y de correlación avanzada entre secciones y entre documentos distintos. Exigen dominio absoluto de cada detalle. Cada pregunta tiene UNA respuesta inequívocamente correcta según el material.",
+  easy: `NIVEL FÁCIL: preguntas directas sobre conceptos básicos, definiciones y datos literales; la respuesta aparece casi textual en el material.
+- Selección múltiple: "¿Qué es…?", "¿Qué concepto…?"; distractores de otros temas, claramente distinguibles.
+- Verdadero o falso: afirmaciones literales; las falsas niegan o cambian el concepto principal de forma evidente.
+- Completar: un solo hueco con el término central de la oración.
+- Abierta: definir o describir un concepto en pocas líneas.`,
+  medium: `NIVEL MEDIO: comprensión y relación entre conceptos; parafrasea en vez de copiar.
+- Selección múltiple: identificar un concepto a partir de su descripción o de un ejemplo; distractores plausibles del mismo tema (confusiones típicas).
+- Verdadero o falso: las falsas cambian un concepto por otro relacionado del mismo tema.
+- Completar: un hueco con una palabra clave del predicado (no siempre el sujeto).
+- Abierta: explicar con tus palabras un concepto, su función o su causa.`,
+  hard: `NIVEL DIFÍCIL (POVEDA): análisis, inferencia y detalle; la respuesta NO está escrita literalmente y exige combinar partes del material.
+- Selección múltiple: "¿Cuál de las siguientes afirmaciones es correcta?" con afirmaciones completas casi iguales; o cifras, fechas, autores y condiciones exactas; o aplicar un concepto a un caso práctico.
+- Verdadero o falso: cambios sutiles (una cifra, un autor, una condición, un matiz).
+- Completar: dos huecos (concepto y dato exacto).
+- Abierta: relacionar o comparar dos conceptos y justificar con datos del material.`,
+  jacqueline: `NIVEL JACQUELINE (maestro/extremo): preguntas ultra-específicas y capciosas pero justas, de correlación entre secciones y entre documentos distintos; exigen dominio absoluto de cada detalle (cifras, fechas, nombres, excepciones, notas del orador, imágenes y apuntes manuscritos).
+- Selección múltiple: "¿Cuál de las siguientes afirmaciones es INCORRECTA?" mezclando temas o documentos; opciones casi idénticas que difieren en una palabra crítica.
+- Verdadero o falso: afirmaciones compuestas de dos ideas de temas distintos; basta un detalle alterado para que sea falsa.
+- Completar: tres huecos (concepto, cifra y palabra clave).
+- Abierta: integrar o comparar conceptos de secciones o documentos distintos.
+Cada pregunta tiene UNA respuesta inequívocamente correcta según el material.`,
 };
 const TYPE_FORMAT = {
   multiple_choice: (d) => `{"type":"multiple_choice","prompt":"enunciado","options":[${d === "jacqueline" ? "5" : "4"} opciones],"answer_index":0,"explanation":"justificación breve","topic":"temática","focus":"subtema concreto","source_document":"nombre exacto","source_location":"ubicación exacta"} — exactamente una correcta, sin "todas/ninguna de las anteriores"`,
@@ -529,6 +546,7 @@ ${DIFF_SPEC[cfg.difficulty]}
 Genera exactamente ${chunk.length} preguntas con esta distribución:
 ${counts.map(([m, n]) => `- ${n} de tipo ${m}: ${TYPE_FORMAT[m](cfg.difficulty)}`).join("\n")}
 
+Variedad (semilla ${Math.floor(Math.random() * 1e6)}): reparte las preguntas entre TODAS las secciones y documentos del material, sin concentrarte en el principio; no repitas conceptos dentro del cuestionario y prioriza partes que no aparezcan en las preguntas ya usadas. Cada nivel de dificultad debe notarse en el TIPO de pregunta, como se indica arriba.
 Reglas generales: todo debe poder responderse con el material; cubre documentos y secciones de forma equilibrada; escribe en el idioma del material; mezcla los tipos; en "explanation" justifica con el material; usa en "source_document" el nombre exacto del documento y en "source_location" la etiqueta de ubicación (p. ej. "Página 4"). No uses palabras marcadas con [?] o [ilegible].
 "focus": el subtema o concepto concreto (1 a 6 palabras) sobre el que trata exactamente la pregunta dentro de "topic" (p. ej. topic "Respiración celular" y focus "Ciclo de Krebs"); debe ser distinto de "topic" y no revelar la respuesta en preguntas de completar o de selección.
 "topic": título breve (2 a 6 palabras) de la temática del documento a la que pertenece la pregunta: usa el título de la sección, diapositiva, capítulo o apartado de donde sale; si no hay título, nombra el tema concreto (p. ej. "Respiración celular"), nunca "General" ni el nombre del archivo.

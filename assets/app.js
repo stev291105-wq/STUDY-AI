@@ -16,7 +16,7 @@ const MAX_MODES = 3;
 const DIFFS = {
   easy: { label: "Fácil", tone: "mint", hint: "Conceptos básicos y definiciones literales" },
   medium: { label: "Medio", tone: "sky", hint: "Comprensión, relación de conceptos y aplicación" },
-  hard: { label: "Difícil", tone: "rose", hint: "Análisis profundo, inferencia y casos prácticos" },
+  hard: { label: "Difícil (POVEDA)", tone: "rose", hint: "Análisis profundo, inferencia y casos prácticos" },
   jacqueline: { label: "Jacqueline", tone: "lav", hint: "Ultra-específicas, capciosas y de correlación entre documentos" },
 };
 const LETTERS = "ABCDEFGH";
@@ -471,10 +471,27 @@ function distribute(modes, total) {
 
 // ------------------------------------------------------------------ motores de IA (generación y validación)
 const DIFF_SPEC = {
-  easy: "NIVEL FÁCIL: preguntas directas sobre conceptos básicos y definiciones literales; la respuesta aparece casi textual en el material; distractores claramente distinguibles.",
-  medium: "NIVEL MEDIO: comprensión, relación entre conceptos y aplicación estándar; parafrasea en vez de copiar; distractores plausibles basados en confusiones típicas.",
-  hard: "NIVEL DIFÍCIL: análisis profundo, inferencia compleja y casos prácticos; la respuesta NO está escrita literalmente y exige combinar varias partes del material; distractores con errores conceptuales sofisticados.",
-  jacqueline: "NIVEL JACQUELINE (maestro/extremo): preguntas ultra-específicas (cifras, fechas, nombres, condiciones, excepciones y matices, incluidos detalles de imágenes, notas del orador y apuntes manuscritos), capciosas pero justas (absolutos, negaciones, una sola palabra crítica cambiada, opciones casi idénticas) y de correlación avanzada entre secciones y entre documentos distintos. Exigen dominio absoluto de cada detalle. Cada pregunta tiene UNA respuesta inequívocamente correcta según el material.",
+  easy: `NIVEL FÁCIL: preguntas directas sobre conceptos básicos, definiciones y datos literales; la respuesta aparece casi textual en el material.
+- Selección múltiple: "¿Qué es…?", "¿Qué concepto…?"; distractores de otros temas, claramente distinguibles.
+- Verdadero o falso: afirmaciones literales; las falsas niegan o cambian el concepto principal de forma evidente.
+- Completar: un solo hueco con el término central de la oración.
+- Abierta: definir o describir un concepto en pocas líneas.`,
+  medium: `NIVEL MEDIO: comprensión y relación entre conceptos; parafrasea en vez de copiar.
+- Selección múltiple: identificar un concepto a partir de su descripción o de un ejemplo; distractores plausibles del mismo tema (confusiones típicas).
+- Verdadero o falso: las falsas cambian un concepto por otro relacionado del mismo tema.
+- Completar: un hueco con una palabra clave del predicado (no siempre el sujeto).
+- Abierta: explicar con tus palabras un concepto, su función o su causa.`,
+  hard: `NIVEL DIFÍCIL (POVEDA): análisis, inferencia y detalle; la respuesta NO está escrita literalmente y exige combinar partes del material.
+- Selección múltiple: "¿Cuál de las siguientes afirmaciones es correcta?" con afirmaciones completas casi iguales; o cifras, fechas, autores y condiciones exactas; o aplicar un concepto a un caso práctico.
+- Verdadero o falso: cambios sutiles (una cifra, un autor, una condición, un matiz).
+- Completar: dos huecos (concepto y dato exacto).
+- Abierta: relacionar o comparar dos conceptos y justificar con datos del material.`,
+  jacqueline: `NIVEL JACQUELINE (maestro/extremo): preguntas ultra-específicas y capciosas pero justas, de correlación entre secciones y entre documentos distintos; exigen dominio absoluto de cada detalle (cifras, fechas, nombres, excepciones, notas del orador, imágenes y apuntes manuscritos).
+- Selección múltiple: "¿Cuál de las siguientes afirmaciones es INCORRECTA?" mezclando temas o documentos; opciones casi idénticas que difieren en una palabra crítica.
+- Verdadero o falso: afirmaciones compuestas de dos ideas de temas distintos; basta un detalle alterado para que sea falsa.
+- Completar: tres huecos (concepto, cifra y palabra clave).
+- Abierta: integrar o comparar conceptos de secciones o documentos distintos.
+Cada pregunta tiene UNA respuesta inequívocamente correcta según el material.`,
 };
 const TYPE_FORMAT = {
   multiple_choice: (d) => `{"type":"multiple_choice","prompt":"enunciado","options":[${d === "jacqueline" ? "5" : "4"} opciones],"answer_index":0,"explanation":"justificación breve","topic":"temática","focus":"subtema concreto","source_document":"nombre exacto","source_location":"ubicación exacta"} — exactamente una correcta, sin "todas/ninguna de las anteriores"`,
@@ -531,6 +548,7 @@ ${DIFF_SPEC[cfg.difficulty]}
 Genera exactamente ${chunk.length} preguntas con esta distribución:
 ${counts.map(([m, n]) => `- ${n} de tipo ${m}: ${TYPE_FORMAT[m](cfg.difficulty)}`).join("\n")}
 
+Variedad (semilla ${Math.floor(Math.random() * 1e6)}): reparte las preguntas entre TODAS las secciones y documentos del material, sin concentrarte en el principio; no repitas conceptos dentro del cuestionario y prioriza partes que no aparezcan en las preguntas ya usadas. Cada nivel de dificultad debe notarse en el TIPO de pregunta, como se indica arriba.
 Reglas generales: todo debe poder responderse con el material; cubre documentos y secciones de forma equilibrada; escribe en el idioma del material; mezcla los tipos; en "explanation" justifica con el material; usa en "source_document" el nombre exacto del documento y en "source_location" la etiqueta de ubicación (p. ej. "Página 4"). No uses palabras marcadas con [?] o [ilegible].
 "focus": el subtema o concepto concreto (1 a 6 palabras) sobre el que trata exactamente la pregunta dentro de "topic" (p. ej. topic "Respiración celular" y focus "Ciclo de Krebs"); debe ser distinto de "topic" y no revelar la respuesta en preguntas de completar o de selección.
 "topic": título breve (2 a 6 palabras) de la temática del documento a la que pertenece la pregunta: usa el título de la sección, diapositiva, capítulo o apartado de donde sale; si no hay título, nombra el tema concreto (p. ej. "Respiración celular"), nunca "General" ni el nombre del archivo.
@@ -881,9 +899,9 @@ const contract = (t) => t.replace(/\b([aA]) el\b/g, "$1l").replace(/\b([dD]e) el
 const stripEnd = (t) => t.replace(/[.!?]+$/, "");
 /** Fuente y contexto de un hecho: la oración exacta del material y las oraciones vecinas. */
 function cite(f) {
-  let t = `Fuente: «${f.doc}» · ${f.loc} (tema «${f.topic}»).\nEl material dice: “${f.text}”`;
-  if (f.ctx?.before || f.ctx?.after) t += `\nContexto del apunte: ${[f.ctx.before, f.ctx.after].filter(Boolean).map((x) => `“${x}”`).join(" … ")}`;
-  return t;
+  let t = `El apunte dice: “${f.text}”`;
+  if (f.anaphoric && f.ctx?.before) t = `El apunte dice: “${f.ctx.before} ${f.text}”`;
+  return `${t}\nFuente: «${f.doc}» · ${f.loc}.`;
 }
 // Contexto previo para oraciones que dependen de la anterior («Esta obra se publicó…»).
 const lead = (f) => (f.anaphoric && f.ctx?.before ? `Contexto: «${f.ctx.before}»\n` : "");
@@ -920,6 +938,27 @@ const contentWords = (t) => normalize(t).split(" ").filter((w) => w.length > 2 &
 const overlaps = (x, y) => { const A = contentWords(x), B = contentWords(y); return !A.length || !B.length || A.every((w) => B.includes(w)) || B.every((w) => A.includes(w)); };
 const sameConcept = (a, b) => normalize(a.subj.noun) === normalize(b.subj.noun) || overlaps(a.subj.noun, b.subj.noun);
 
+// Nombre propio compuesto de un texto («Comité de Salvación Pública»); la primera palabra sola no cuenta.
+function nameChain(text) {
+  const w = text.replace(/[,;:.()«»"]/g, " ").split(/\s+/).filter(Boolean), chains = [];
+  for (let i = 0; i < w.length; i++) {
+    if (!isCap(w[i])) continue;
+    let j = i + 1;
+    while (j < w.length && (isCap(w[j]) || (/^(de|del|la|las|los|y)$/i.test(w[j]) && isCap(w[j + 1] || "")))) j++;
+    const c = w.slice(i, j);
+    if (i > 0 || c.length > 1) chains.push(c.join(" "));
+    i = j - 1;
+  }
+  return chains.sort((a, b) => b.length - a.length)[0] || "";
+}
+// Frase nominal de un texto: nombre propio compuesto, o «el agua del planeta», o la primera idea clave.
+function nounPhrase(text) {
+  const c = nameChain(text);
+  if (c.split(" ").length > 1) return c;
+  const m = text.match(/\b(?:el|la|los|las|del|al)\s+(\p{L}{4,})(?:\s+(de|del)\s+(?:(la|los|las|el)\s+)?(\p{L}{4,}))?/iu);
+  if (m && !isStop(m[1]) && !VERB_WORDS.has(normalize(m[1]))) return ucFirst([m[1], m[2], m[3], m[4]].filter(Boolean).join(" "));
+  return c || ucFirst(keyIdeas(text, 1)[0] || "");
+}
 /** ¿El subtema delata la respuesta? (en selección y completar no puede nombrarla). */
 function revealsAnswer(q) {
   if (!q.focus) return false;
@@ -938,15 +977,12 @@ function shortPhrase(t, n = 6, pred = false) {
   while (out.length > 1 && (isStop(bare(out[out.length - 1])) || /,$/.test(out[out.length - 1]) && out.length > 2 && isStop(bare(out[out.length - 2])))) out.pop();
   const res = out.join(" ").replace(/[,;:.]+$/, "");
   // Una cifra suelta («1839 por…») no nombra un tema: se usan las ideas clave del texto.
-  if (!res || /^\d/.test(res)) { const k = keyIdeas(t, 2); return k.length ? ucFirst(k.join(" y ")) : ""; }
+  if (!res || /^\d/.test(res)) return nounPhrase(t);
   return ucFirst(res);
 }
 /** Si el subtema delata la respuesta, se cambia por una idea del enunciado que no la nombra. */
 function safeFocus(q) {
-  if (!revealsAnswer(q)) return q;
-  const ans = (q.type === "multiple_choice" ? [q.options?.[q.answerIndex]] : (q.answers || []).flat()).map(String);
-  const alt = keyIdeas(q.prompt.split(BLANK).join(" "), 4, ans.join(" ")).find((w) => !ans.some((a) => normalize(a).includes(normalize(w))));
-  return { ...q, focus: alt ? ucFirst(alt) : "" };
+  return revealsAnswer(q) ? { ...q, focus: "" } : q;
 }
 
 /** Revisión final de sentido: descarta preguntas mal formadas, venga de la IA o de las reglas. */
@@ -962,230 +998,381 @@ function saneQuestion(q) {
   return true;
 }
 
-function generateLocal(files, cfg) {
+// Clase de elemento que enumera un apartado («Pasos para la entrevista» → «paso»), para redactar preguntas precisas.
+const KINDS = {
+  pasos: ["paso", "m"], etapas: ["etapa", "f"], fases: ["fase", "f"], tipos: ["tipo", "m"], periodos: ["período", "m"],
+  tecnicas: ["técnica", "f"], caracteristicas: ["característica", "f"], criterios: ["criterio", "m"], funciones: ["función", "f"],
+  factores: ["factor", "m"], elementos: ["elemento", "m"], niveles: ["nivel", "m"], modelos: ["modelo", "m"], teorias: ["teoría", "f"],
+  enfoques: ["enfoque", "m"], principios: ["principio", "m"], metodos: ["método", "m"], componentes: ["componente", "m"],
+  dimensiones: ["dimensión", "f"], areas: ["área", "f"], momentos: ["momento", "m"], escuelas: ["escuela", "f"], corrientes: ["corriente", "f"],
+  instrumentos: ["instrumento", "m"], pruebas: ["prueba", "f"], tests: ["test", "m"], trastornos: ["trastorno", "m"], sintomas: ["síntoma", "m"],
+  causas: ["causa", "f"], consecuencias: ["consecuencia", "f"], ventajas: ["ventaja", "f"], objetivos: ["objetivo", "m"], partes: ["parte", "f"],
+  procesos: ["proceso", "m"], estrategias: ["estrategia", "f"], habilidades: ["habilidad", "f"], ejes: ["eje", "m"], estadios: ["estadio", "m"],
+};
+function termKind(f) {
+  if (f.term?.person) return { n: "autor", g: "m" };
+  const hit = normalize(f.topic).split(" ").map((w) => KINDS[w]).find(Boolean) || (f.term?.refs ? ["enfoque", "m"] : ["concepto", "m"]);
+  return { n: hit[0], g: hit[1] };
+}
+const art = (k, cap = false) => (k.g === "f" ? (cap ? "La" : "la") : cap ? "El" : "el");
+// «comprende: trastornos…» para listas; «consiste en: describir…» para acciones.
+const linkVerb = (desc) => (/^\p{Ll}+(ar|er|ir)\b/u.test(desc) ? "consiste en" : "comprende");
+// Descripción que es una oración («se comunican los resultados…»): se redacta «en el que…».
+const isClause = (desc) => /^(se|no|le|les|lo|la)\s/i.test(desc);
+// Si el nombre ya dice la clase («Período psicométrico»), no se repite («el período «Período psicométrico»»).
+const hasKind = (f, k) => normalize(f.term.name).split(" ").includes(normalize(k.n));
+const termNP = (f) => { const k = termKind(f); return hasKind(f, k) ? `«${f.term.name}»` : `${art(k)} ${k.n} «${f.term.name}»`; };
+/** Afirmación completa de una entrada de esquema: «El paso «Diagnóstico» comprende: …», «Los autores asociados al «…» son: …». */
+function termStmt(f, desc) {
+  const t = f.term;
+  if (t.refs) return contract(`Los autores asociados a ${termNP(f)} son: ${desc}.`);
+  if (t.person) return `${t.name} se asocia con la idea: «${desc}».`;
+  if (isClause(desc)) return `En ${termNP(f)} ${desc}.`;
+  return `${ucFirst(termNP(f))} ${linkVerb(desc)}: ${desc}.`;
+}
+// Texto de un hecho como afirmación (las entradas de esquema se redactan completas).
+const stmt = (f) => (f.term ? termStmt(f, f.term.desc) : f.text);
+
+/**
+ * Motor demo: elige hechos repartidos por todos los apartados (sin repetir lo ya preguntado en la sesión)
+ * y construye preguntas distintas según el nivel:
+ *  Fácil — definiciones y datos literales, distractores de otros temas.
+ *  Medio — identificar conceptos por su descripción, palabras clave, falsas con un concepto relacionado.
+ *  Difícil (POVEDA) — «¿cuál es correcta?», cifras y nombres exactos, dos huecos, relaciones entre conceptos.
+ *  Jacqueline — «¿cuál es INCORRECTA?», afirmaciones compuestas, tres huecos y comparaciones entre temas o documentos.
+ */
+function generateLocal(files, cfg, history = {}) {
   const facts = buildFacts(files);
   const withSubj = facts.filter((f) => f.subj);
   const terms = facts.filter((f) => f.term);
-  // Con poco material se generan las preguntas que sea posible (la interfaz avisa si salen menos); solo se falla si no hay nada útil.
   if (!withSubj.length && !terms.length && !facts.some((f) => f.numbers.length))
-    throw new Error("El modo demo no encontró suficientes oraciones completas en tus documentos. Funciona mejor con Word, PDF o archivos de texto con párrafos redactados; para fotos, esquemas o apuntes a mano usa With Gemini o tu cuenta de Claude.");
+    throw new Error("El modo demo no encontró suficientes oraciones completas en tus documentos. Funciona mejor con Word, PDF o archivos de texto con párrafos redactados; para fotos, esquemas o apuntes a mano usa With Gemini.");
   const d = cfg.difficulty, hard = d === "hard" || d === "jacqueline";
   const nOpts = d === "jacqueline" ? 5 : 4;
   const sentences = new Set(facts.map((f) => normalize(f.text)));
-  // Opciones: la correcta y hasta nOpts-1 distractores; con menos de dos distractores no hay pregunta.
+  const factKey = (f) => normalize(f.text).slice(0, 140);
+  const prevFacts = new Set(history.facts || []);
+  const prevPrompts = new Set((history.prompts || []).map(normalize));
+
   const optionsWith = (right, others) => {
     const pool = [...new Set(others.map(ucFirst))].filter((x) => normalize(x) !== normalize(right));
     return pool.length >= 2 ? shuffle([ucFirst(right), ...pool.slice(0, nOpts - 1)]) : null;
   };
-  // Todas las oraciones de un mismo concepto en el mismo documento: la «ficha» que sirve de respuesta modelo.
+  // Ficha de un concepto: sus oraciones del mismo documento (respuesta modelo de las abiertas).
   const card = (f) => {
     if (f.term) return `${f.term.label}: ${f.term.desc}.`;
     const mine = withSubj.filter((x) => x.fi === f.fi && sameConcept(x, f));
     const exact = (x) => normalize(x.subj.noun) === normalize(f.subj.noun);
     return [f, ...mine.filter((x) => x !== f && exact(x)), ...mine.filter((x) => !exact(x))].map((x) => x.text).slice(0, 3).join(" ");
   };
-  // Otros conceptos comparables del mismo documento (nunca de otro documento), del mismo tema primero en niveles altos.
-  const peers = (f, { sameTopic = false, defs = false } = {}) => {
-    const seen = new Set([normalize(f.subj.noun)]);
-    const list = withSubj.filter((x) => x.fi === f.fi && !sameConcept(x, f) && sameShape(x, f) && (!defs || x.subj.def)
-      && !normalize(f.text).includes(normalize(x.subj.noun)) && (!sameTopic || x.topic === f.topic));
-    const ordered = hard ? [...list.filter((x) => x.topic === f.topic), ...shuffle(list.filter((x) => x.topic !== f.topic))] : shuffle(list);
-    const picked = [];
+  // Conceptos comparables del mismo documento; «near» = mismo tema primero (más difícil), «far» = otros temas primero (más fácil).
+  const peers = (f, { defs = false, order = hard ? "near" : "any" } = {}) => {
+    const seen = new Set([normalize(f.subj.noun)]), picked = [];
+    const list = withSubj.filter((x) => x.fi === f.fi && !sameConcept(x, f) && sameShape(x, f) && (!defs || x.subj.def) && !normalize(f.text).includes(normalize(x.subj.noun)));
+    const same = shuffle(list.filter((x) => x.topic === f.topic)), other = shuffle(list.filter((x) => x.topic !== f.topic));
+    const ordered = order === "near" ? [...same, ...other] : order === "far" ? [...other, ...same] : shuffle(list);
     return ordered.filter((x) => { const k = normalize(x.subj.noun); if (seen.has(k) || picked.some((y) => overlaps(y, x.subj.noun))) return false; seen.add(k); picked.push(x.subj.noun); return true; });
   };
-  // Otras entradas «Concepto: descripción» del mismo documento y de la misma clase (listas de autores con listas de autores).
   const termPeers = (f) => {
     const list = terms.filter((x) => x.fi === f.fi && x.id !== f.id && !x.term.generic && x.term.refs === f.term.refs && x.term.person === f.term.person
       && !overlaps(x.term.label, f.term.label) && normalize(x.term.desc) !== normalize(f.term.desc));
     return [...shuffle(list.filter((x) => x.topic === f.topic)), ...shuffle(list.filter((x) => x.topic !== f.topic))];
   };
-  // Preferencia por nivel: fácil → definiciones; difícil/Jacqueline → datos concretos y oraciones largas.
-  const weight = (f) => (d === "easy" ? (f.subj?.def ? 3 : f.term && !f.term.refs ? 2 : f.subj || f.term ? 1 : 0) - f.text.length / 300
-    : d === "medium" ? (f.subj || f.term ? 1 : 0)
-    : (f.numbers.length ? 2 : 0) + (f.subj || f.term ? 1 : 0) + f.text.length / 200) + Math.random() * 1.5;
-  const ranked = [...facts].sort((a, b) => weight(b) - weight(a));
-  const used = new Map(); // id del hecho → tipos ya usados
-  const mark = (f, type) => used.set(f.id, [...(used.get(f.id) || []), type]);
-  const usable = (f, type) => !(used.get(f.id) || []).includes(type) && (used.get(f.id) || []).length < 2;
-  // Subtema concreto de cada pregunta: el concepto del que trata (se muestra subrayado junto a la temática).
   const focusOf = (f) => {
-    const t = f.term ? f.term.name : f.subj ? ucFirst(f.subj.npText) : (keyIdeas(f.text, 1)[0] || "");
+    const t = f.term ? f.term.name : f.subj ? ucFirst(f.subj.npText) : nounPhrase(f.text);
     return t && normalize(t) !== normalize(f.topic) ? ucFirst(t) : "";
   };
-  const base = (f, type) => ({ id: uid(), type, topic: f.topic, focus: focusOf(f), explanation: cite(f), source: { doc: f.doc, loc: f.loc } });
+  const base = (f, type) => ({ id: uid(), type, topic: f.topic, focus: focusOf(f), fact: factKey(f), explanation: cite(f), source: { doc: f.doc, loc: f.loc } });
 
-  const build = {
-    multiple_choice(f) {
-      const T = f.topic;
-      if (f.term) {
-        // «¿Con qué concepto relaciona el material a estos autores?» con los otros conceptos del mismo esquema.
-        if (f.term.generic) return null;
-        const opts = optionsWith(f.term.name, termPeers(f).map((x) => x.term.name));
+  // Formas de convertir un hecho en una afirmación falsa pero plausible (cada una con su porqué).
+  const falsesOf = (f, mode = "any") => {
+    const out = [];
+    if (f.term && !f.term.generic) {
+      const pick = termPeers(f)[0];
+      if (pick) out.push({ text: termStmt(f, pick.term.desc), focus: f.term.name, why: `Eso corresponde a «${pick.term.name}». Lo correcto es: ${termStmt(f, f.term.desc)}` });
+      return out;
+    }
+    if (f.numbers.length) {
+      const n = f.numbers[0], v = numericVariants(n, f.numbers)[0];
+      if (v) out.push({ kind: "num", text: replaceOnce(f.text, n, v), why: `El dato correcto es ${n}, no ${v}.` });
+    }
+    if (f.subj) {
+      const mine = new Set(contentWords(f.subj.pred));
+      const related = (x) => contentWords(x.subj.pred).filter((w) => mine.has(w)).length + (normalize(x.subj.noun.split(" ")[0]) === normalize(f.subj.noun.split(" ")[0]) ? 2 : 0) + (x.topic === f.topic ? 1 : 0);
+      // Solo conceptos relacionados (comparten ideas, núcleo o tema): la falsa debe ser plausible, nunca absurda.
+      const pool = peers(f, { order: mode === "easy" ? "far" : "near" }).map((x) => ({ x, r: related(x) })).filter((p) => p.r >= 2).sort((a, b) => b.r - a.r);
+      const pick = pool[0]?.x;
+      if (pick) out.push({ kind: "swap", text: swapSubject(f, pick), focus: ucFirst(npLower(pick.subj)), why: contract(`El apunte atribuye esto a ${npLower(f.subj)}, no a ${npLower(pick.subj)}.`) });
+      if (f.subj.def) out.push({ kind: "neg", text: replaceOnce(f.text, ` ${f.subj.copula} `, ` no ${f.subj.copula} `), why: `El apunte afirma justo lo contrario.` });
+    }
+    if (/\bno\s+(es|son|tiene|tienen|requiere|requieren|puede|pueden|presenta|presentan)\b/.test(f.text) && !/\bsí\b/i.test(f.text))
+      out.push({ kind: "neg", text: f.text.replace(/\bno\s+/, ""), why: `El apunte dice justo lo contrario.` });
+    return out.filter((x) => !sentences.has(normalize(x.text)) && x.text !== f.text);
+  };
+  const lc = (t) => t.charAt(0).toLowerCase() + t.slice(1);
+  // Palabra clave del predicado (no el sujeto) para huecos de nivel medio en adelante.
+  const keyword = (f) => {
+    if (!f.subj) return null;
+    const skip = normalize(f.subj.noun);
+    return keyIdeas(f.subj.pred, 6, f.subj.noun).filter((w) => w.length >= 5 && !/\d/.test(w) && !skip.includes(normalize(w)))[Math.random() < 0.5 ? 0 : 1] || null;
+  };
+
+  const variants = {
+    multiple_choice: {
+      def(f) {
+        if (!f.subj?.def) return null;
+        const opts = optionsWith(f.subj.def, peers(f, { defs: true, order: d === "easy" ? "far" : "near" }).map((x) => x.subj.def));
+        return opts && { ...base(f, "multiple_choice"), prompt: `¿Qué ${f.subj.copula} ${npLower(f.subj)}?`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.def)),
+          explanation: `La respuesta correcta es: ${lc(f.subj.def)}.\n${cite(f)}` };
+      },
+      concept(f) {
+        if (!f.subj) return null;
+        const opts = optionsWith(f.subj.npText, peers(f, { order: d === "easy" ? "far" : "near" }).map((x) => x.subj.npText));
         if (!opts) return null;
-        const prompt = f.term.refs ? `¿A qué concepto corresponden estos autores?\n«${f.term.desc}»`
-          : f.term.person ? `¿A quién se asocia lo siguiente?\n«${f.term.desc}»`
-          : `¿Qué concepto se describe así?\n«${f.term.desc}»`;
-        return { ...base(f, "multiple_choice"), prompt, options: opts, answerIndex: opts.indexOf(ucFirst(f.term.name)), explanation: `La respuesta es «${f.term.name}».\n${cite(f)}` };
-      }
-      // 1) Definición: «¿Qué es la mitocondria?» con definiciones reales de otros conceptos.
-      if (f.subj?.def && (d === "easy" || d === "medium" || Math.random() < 0.4)) {
-        const opts = optionsWith(f.subj.def, peers(f, { defs: true }).map((x) => x.subj.def));
-        if (opts) return { ...base(f, "multiple_choice"), prompt: `¿Qué ${f.subj.copula} ${npLower(f.subj)}?`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.def)) };
-      }
-      // 2) Dato concreto (niveles altos): la cifra exacta.
-      if (hard && f.numbers.length) {
+        const stem = f.subj.prefix ? `${f.subj.prefix}${BLANK} ${f.subj.pred}` : `${BLANK} ${f.subj.pred}`;
+        return { ...base(f, "multiple_choice"), prompt: `${lead(f)}¿Qué concepto completa correctamente esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.npText)),
+          explanation: `La respuesta correcta es «${f.subj.npText}».\n${cite(f)}` };
+      },
+      termLabel(f) {
+        if (!f.term || f.term.generic) return null;
+        const k = termKind(f), opts = optionsWith(f.term.name, termPeers(f).map((x) => x.term.name));
+        if (!opts) return null;
+        const prompt = f.term.refs ? `¿A qué ${k.n} corresponden estos autores?\n«${f.term.desc}»`
+          : f.term.person ? `¿Qué autor se asocia con esta idea?\n«${f.term.desc}»`
+          : isClause(f.term.desc) ? `¿En qué ${k.n} ${f.term.desc}?`
+          : `¿Qué ${k.n} ${linkVerb(f.term.desc)} lo siguiente?\n«${f.term.desc}»`;
+        return { ...base(f, "multiple_choice"), prompt, options: opts, answerIndex: opts.indexOf(ucFirst(f.term.name)), explanation: `La respuesta correcta es «${f.term.name}».\n${cite(f)}` };
+      },
+      termDesc(f) {
+        if (!f.term || f.term.generic || f.term.desc.length > 150) return null;
+        const k = termKind(f), others = termPeers(f).filter((x) => x.term.desc.length <= 150).map((x) => x.term.desc);
+        const opts = optionsWith(f.term.desc, others);
+        if (!opts) return null;
+        const prompt = f.term.refs ? contract(`¿Qué autores se asocian a ${termNP(f)}?`)
+          : f.term.person ? `¿Con qué idea se asocia a ${f.term.name}?` : isClause(f.term.desc) ? `¿Qué ocurre en ${termNP(f)}?` : `¿Qué ${linkVerb(f.term.desc)} ${termNP(f)}?`;
+        return { ...base(f, "multiple_choice"), prompt, options: opts, answerIndex: opts.indexOf(ucFirst(f.term.desc)), explanation: `La respuesta correcta es: ${f.term.desc}.\n${cite(f)}` };
+      },
+      number(f) {
+        if (!f.numbers.length) return null;
         const n = f.numbers[f.numbers.length > 1 && d === "jacqueline" ? 1 : 0];
         const vars = numericVariants(n, f.numbers).slice(0, nOpts - 1);
-        if (vars.length >= nOpts - 1) {
-          const opts = shuffle([n, ...vars]);
-          return { ...base(f, "multiple_choice"), prompt: `${lead(f)}¿Qué dato completa correctamente esta afirmación?\n«${replaceOnce(f.text, n, BLANK)}»`, options: opts, answerIndex: opts.indexOf(n) };
-        }
-      }
-      // 3) Concepto: «¿A qué concepto corresponde esta afirmación?» con conceptos del mismo documento y misma concordancia.
-      if (f.subj) {
-        const others = peers(f, { sameTopic: d === "jacqueline" && peers(f, { sameTopic: true }).length >= nOpts - 1 });
-        const opts = optionsWith(f.subj.npText, others.map((x) => x.subj.npText));
-        if (opts) {
-          const stem = f.subj.prefix ? `${f.subj.prefix}${BLANK} ${f.subj.pred}` : `${BLANK} ${f.subj.pred}`;
-          return { ...base(f, "multiple_choice"), prompt: `¿A qué concepto se refiere esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.npText)) };
-        }
-      }
-      return null;
+        if (vars.length < nOpts - 1) return null;
+        const opts = shuffle([n, ...vars]);
+        return { ...base(f, "multiple_choice"), prompt: `${lead(f)}¿Qué dato exacto completa esta afirmación?\n«${replaceOnce(f.text, n, BLANK)}»`, options: opts, answerIndex: opts.indexOf(n),
+          explanation: `El dato correcto es ${n}.\n${cite(f)}` };
+      },
+      // Difícil: una sola afirmación correcta entre versiones alteradas de otros hechos del mismo documento.
+      correctStatement(f) {
+        if (f.anaphoric || f.text.length > 230) return null;
+        const pool = shuffle(facts.filter((g) => g.fi === f.fi && g.id !== f.id && !g.anaphoric && g.text.length <= 230)).sort((a, b) => (b.topic === f.topic) - (a.topic === f.topic));
+        const wrong = [], whys = [];
+        for (const g of pool) { const x = falsesOf(g)[0]; if (x && !wrong.includes(x.text)) { wrong.push(x.text); whys.push(x.why); } if (wrong.length >= nOpts - 1) break; }
+        if (wrong.length < 2) return null;
+        const opts = shuffle([stmt(f), ...wrong]);
+        return { ...base(f, "multiple_choice"), focus: "", prompt: "¿Cuál de las siguientes afirmaciones es correcta?", options: opts, answerIndex: opts.indexOf(stmt(f)),
+          explanation: `La correcta es: “${stmt(f)}”. Las demás alteran el apunte: ${whys.join(" ")}\nFuente: «${f.doc}» · ${f.loc}.` };
+      },
+      // Jacqueline: la única afirmación INCORRECTA entre hechos verdaderos de otros temas o documentos.
+      incorrectStatement(f) {
+        const x = falsesOf(f)[0];
+        if (!x || f.anaphoric || f.text.length > 230) return null;
+        const pool = shuffle(facts.filter((g) => g.id !== f.id && !g.anaphoric && g.text.length <= 230 && (g.topic !== f.topic || g.fi !== f.fi)));
+        const trues = []; const seenT = new Set([f.topic]);
+        for (const g of pool) { if (seenT.has(g.topic) && trues.length < 2) continue; trues.push(stmt(g)); seenT.add(g.topic); if (trues.length >= nOpts - 1) break; }
+        if (trues.length < 2) return null;
+        const opts = shuffle([x.text, ...trues]);
+        return { ...base(f, "multiple_choice"), focus: "Afirmaciones de varios temas", prompt: "¿Cuál de las siguientes afirmaciones es INCORRECTA?", options: opts, answerIndex: opts.indexOf(x.text),
+          explanation: `La incorrecta es: “${x.text}”. ${x.why} Las demás coinciden con el apunte.\n${cite(f)}` };
+      },
     },
 
-    true_false(f) {
-      const T = f.topic, b = base(f, "true_false");
-      if (f.term) {
-        // Emparejar cada concepto con su descripción; la falsa usa la descripción de otro concepto del mismo esquema.
-        if (f.term.generic) return null;
-        const pick = termPeers(f)[0];
-        const say = (desc) => termSay(f.term, desc);
-        if (!pick || Math.random() < 0.45) return { ...b, prompt: say(f.term.desc), answerBool: true, explanation: `Es verdadera.\n${cite(f)}` };
-        return { ...b, prompt: say(pick.term.desc), answerBool: false, explanation: `Es falsa. Eso corresponde a «${pick.term.name}». Lo correcto es: ${termSay(f.term, f.term.desc)}\n${cite(f)}` };
-      }
-      const falses = [];
-      if (f.subj) {
-        // Otro concepto comparable del mismo documento: fácil → de otro tema; difícil → del mismo tema (más sutil).
-        // Solo se cambia por un concepto relacionado (comparten ideas del texto o el mismo tema), para que la falsa sea plausible.
-        const mine = new Set(contentWords(f.subj.pred));
-        const related = (x) => contentWords(x.subj.pred).filter((w) => mine.has(w)).length + (normalize(x.subj.noun.split(" ")[0]) === normalize(f.subj.noun.split(" ")[0]) ? 2 : 0);
-        const pool = peers(f).map((x) => ({ x, r: related(x) })).filter((p) => p.r > 0).sort((a, b) => b.r - a.r + (b.x.topic === T) - (a.x.topic === T)).map((p) => p.x);
-        const pick = pool[0];
-        if (pick) falses.push({ text: swapSubject(f, pick), focus: ucFirst(npLower(pick.subj)), why: contract(`El material atribuye esto a ${npLower(f.subj)}, no a ${npLower(pick.subj)}.`) });
-        if (f.subj.def) falses.push({ text: replaceOnce(f.text, ` ${f.subj.copula} `, ` no ${f.subj.copula} `), why: `El material afirma lo contrario.` });
-      }
-      if (f.numbers.length) {
-        const n = f.numbers[0], v = numericVariants(n, f.numbers)[0];
-        if (v) falses.push({ text: replaceOnce(f.text, n, v), why: `El dato correcto es ${n}, no ${v}.` });
-      }
-      if (/\bno\s+(es|son|tiene|tienen|requiere|requieren|puede|pueden|presenta|presentan)\b/.test(f.text) && !/\bsí\b/i.test(f.text))
-        falses.push({ text: f.text.replace(/\bno\s+/, ""), why: `El material dice justo lo contrario.` });
-      const order = hard ? [...falses].reverse() : falses;
-      const pickFalse = order.find((x) => !sentences.has(normalize(x.text)) && x.text !== f.text);
-      const ask = (text) => `${lead(f)}${text}`;
-      if (!pickFalse || Math.random() < 0.45) return f.subj || f.numbers.length ? { ...b, prompt: ask(f.text), answerBool: true, explanation: `Es verdadera: el material lo afirma así.\n${cite(f)}` } : null;
-      return { ...b, ...(pickFalse.focus ? { focus: pickFalse.focus } : {}), prompt: ask(pickFalse.text), answerBool: false, explanation: `Es falsa. ${pickFalse.why}\n${cite(f)}` };
+    true_false: {
+      plain(f, mode) {
+        if (f.term?.generic) return null;
+        const b = base(f, "true_false"), fs = falsesOf(f, mode);
+        // Fácil: negación clara; medio: concepto relacionado cambiado; difícil: cifra exacta o matiz.
+        const x = mode === "easy" ? fs.find((y) => y.kind === "neg") || fs[0]
+          : mode === "related" ? fs.find((y) => y.kind === "swap") || fs[0]
+          : fs.find((y) => y.kind === "num") || fs.find((y) => y.kind === "swap") || fs[0];
+        if (!x || Math.random() < 0.45) {
+          if (!f.subj && !f.numbers.length && !f.term) return null;
+          return { ...b, prompt: lead(f) + stmt(f), answerBool: true, explanation: `Es verdadera.\n${cite(f)}` };
+        }
+        return { ...b, ...(x.focus ? { focus: x.focus } : {}), prompt: lead(f) + x.text, answerBool: false, explanation: `Es falsa. ${x.why}\n${cite(f)}` };
+      },
+      easy(f) { return this.plain(f, "easy"); },
+      related(f) { return this.plain(f, "related"); },
+      subtle(f) { return this.plain(f, "subtle"); },
+      // Jacqueline: dos afirmaciones de temas distintos unidas; basta que una esté alterada para que sea falsa.
+      compound(f) {
+        if (f.anaphoric || f.term) return null;
+        const others = shuffle(facts.filter((x) => x.id !== f.id && !x.anaphoric && !x.term && x.topic !== f.topic && x.text.length < 200));
+        const g = others.find((x) => x.fi === f.fi) || others[0];
+        if (!g || f.text.length > 200) return null;
+        const alter = Math.random() < 0.55, target = Math.random() < 0.5 ? f : g, x = alter ? falsesOf(target)[0] : null;
+        const A = x && target === f ? x.text : f.text, B = x && target === g ? x.text : g.text;
+        return { ...base(f, "true_false"), focus: `${focusOf(f) || f.topic} y ${focusOf(g) || g.topic}`, prompt: `${stripEnd(A)}; además, ${lc(B)}`, answerBool: !x,
+          explanation: x ? `Es falsa: una de las dos partes está alterada. ${x.why}\n${cite(target)}` : `Es verdadera: las dos partes coinciden con el apunte.\n${cite(f)}\n${cite(g)}` };
+      },
     },
 
-    fill_blank(f) {
-      const T = f.topic;
-      const head = lead(f);
-      if (f.term) {
-        if (f.term.generic) return null;
-        const names = f.term.refs ? refNames(f.term.desc) : [];
-        // Jacqueline: el concepto y uno de sus autores.
-        if (d === "jacqueline" && names.length > 1) {
-          const who = names[0];
-          return { ...base(f, "fill_blank"), prompt: head + termSay(f.term, replaceOnce(f.term.desc, who, BLANK), true), answers: [[f.term.name, f.term.label], [who]], explanation: `Respuestas: «${f.term.name}» y «${who}».\n${cite(f)}` };
-        }
-        return { ...base(f, "fill_blank"), prompt: head + termSay(f.term, f.term.desc, true), answers: [[...new Set([f.term.name, f.term.label])]], explanation: `Respuesta: «${f.term.name}».\n${cite(f)}` };
-      }
-      const numBlank = f.numbers.length && (hard || !f.subj);
-      if (d === "jacqueline" && f.subj && !f.subj.proper && f.numbers.length) {
-        // Dos huecos: el concepto y el dato exacto.
+    fill_blank: {
+      subject(f) {
+        if (!f.subj) return null;
+        return { ...base(f, "fill_blank"), prompt: lead(f) + replaceOnce(f.text, f.subj.noun, BLANK), answers: [[...new Set([f.subj.noun, f.subj.npText])]],
+          explanation: `La respuesta es «${f.subj.noun}».\n${cite(f)}` };
+      },
+      term(f) {
+        if (!f.term || f.term.generic) return null;
+        const k = termKind(f), t = f.term;
+        const prompt = t.refs ? (hasKind(f, k) ? `Los autores ${t.desc} se asocian a ${BLANK}.` : contract(`Los autores ${t.desc} se asocian a ${art(k)} ${k.n} ${BLANK}.`))
+          : t.person ? `La idea «${t.desc}» se asocia con el autor ${BLANK}.`
+          : isClause(t.desc) ? `${art(k, true)} ${k.n} en ${k.g === "f" ? "la" : "el"} que ${t.desc} se llama ${BLANK}.`
+          : `${art(k, true)} ${k.n} que ${linkVerb(t.desc)} «${t.desc}» se llama ${BLANK}.`;
+        return { ...base(f, "fill_blank"), prompt, answers: [[...new Set([t.name, t.label])]], explanation: `La respuesta es «${t.name}».\n${cite(f)}` };
+      },
+      keyword(f) {
+        const w = keyword(f);
+        if (!w || !f.text.includes(w)) return null;
+        const i = f.text.indexOf(w, f.text.indexOf(f.subj.noun) + f.subj.noun.length);
+        if (i < 0) return null;
+        return { ...base(f, "fill_blank"), prompt: lead(f) + f.text.slice(0, i) + BLANK + f.text.slice(i + w.length), answers: [[w]], explanation: `La palabra que falta es «${w}».\n${cite(f)}` };
+      },
+      number(f) {
+        if (!f.numbers.length) return null;
         const n = f.numbers[0];
+        return { ...base(f, "fill_blank"), prompt: lead(f) + replaceOnce(f.text, n, BLANK), answers: [[n]], explanation: `El dato que falta es ${n}.\n${cite(f)}` };
+      },
+      // Difícil: el concepto y un dato (cifra o palabra clave) a la vez.
+      twoBlank(f) {
+        if (f.term && f.term.refs && !f.term.generic) {
+          const who = refNames(f.term.desc)[0], k = termKind(f);
+          if (!who) return null;
+          return { ...base(f, "fill_blank"), prompt: hasKind(f, k) ? `Los autores ${replaceOnce(f.term.desc, who, BLANK)} se asocian a ${BLANK}.` : contract(`Los autores ${replaceOnce(f.term.desc, who, BLANK)} se asocian a ${art(k)} ${k.n} ${BLANK}.`), answers: [[who], [...new Set([f.term.name, f.term.label])]],
+            explanation: `Respuestas: «${who}» y «${f.term.name}».\n${cite(f)}` };
+        }
+        if (!f.subj || f.subj.proper) return null;
+        const second = f.numbers[0] || keyword(f);
+        if (!second) return null;
         let prompt = replaceOnce(f.text, f.subj.noun, BLANK);
-        prompt = replaceOnce(prompt, n, BLANK);
-        return { ...base(f, "fill_blank"), prompt: head + prompt, answers: [[f.subj.noun, f.subj.npText], [n]] };
-      }
-      if (numBlank) {
-        const n = f.numbers[0];
-        return { ...base(f, "fill_blank"), prompt: head + replaceOnce(f.text, n, BLANK), answers: [[n]] };
-      }
-      if (f.subj) {
-        const target = f.subj.noun;
-        return { ...base(f, "fill_blank"), prompt: head + replaceOnce(f.text, target, BLANK), answers: [[...new Set([target, f.subj.npText])]] };
-      }
-      return null;
+        if (!prompt.includes(second)) return null;
+        prompt = replaceOnce(prompt, second, BLANK);
+        return { ...base(f, "fill_blank"), prompt: lead(f) + prompt, answers: [[...new Set([f.subj.noun, f.subj.npText])], [second]], explanation: `Respuestas: «${f.subj.noun}» y «${second}».\n${cite(f)}` };
+      },
+      // Jacqueline: tres huecos (concepto, cifra y palabra clave).
+      threeBlank(f) {
+        if (!f.subj || f.subj.proper || !f.numbers.length) return null;
+        const w = keyword(f), n = f.numbers[0];
+        if (!w || normalize(w) === normalize(n)) return null;
+        const marks = [[f.subj.noun, [...new Set([f.subj.noun, f.subj.npText])]], [n, [n]], [w, [w]]]
+          .map(([t, ans]) => ({ t, ans, i: f.text.indexOf(t) })).filter((m) => m.i >= 0).sort((a, b) => a.i - b.i);
+        if (marks.length < 3 || marks[1].i < marks[0].i + marks[0].t.length || marks[2].i < marks[1].i + marks[1].t.length) return null;
+        let prompt = "", at = 0;
+        for (const m of marks) { prompt += f.text.slice(at, m.i) + BLANK; at = m.i + m.t.length; }
+        prompt += f.text.slice(at);
+        return { ...base(f, "fill_blank"), prompt: lead(f) + prompt, answers: marks.map((m) => m.ans), explanation: `Respuestas: ${marks.map((m) => `«${m.t}»`).join(", ")}.\n${cite(f)}` };
+      },
     },
 
-    open(f) {
-      const T = f.topic;
-      if (f.term) {
-        const t = f.term;
-        if (hard && !t.generic) {
-          // Dos conceptos del mismo esquema y tema: qué incluye cada uno.
-          const pair = termPeers(f).find((x) => x.topic === T && usable(x, "open"));
-          if (pair) {
-            mark(pair, "open");
-            const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}» y cuáles a «${pair.term.name}»?`
-              : t.person ? `¿Con qué se asocia a ${t.name} y con qué a ${pair.term.name}?`
-              : `Explica y diferencia «${t.name}» y «${pair.term.name}».`;
-            return { ...base(f, "open"), focus: `${t.name} y ${pair.term.name}`, prompt, modelAnswer: `${card(f)}\n${card(pair)}`, keyPoints: t.refs ? [...refNames(t.desc).slice(0, 2), ...refNames(pair.term.desc).slice(0, 2)] : [...keyIdeas(t.desc, 2), ...keyIdeas(pair.term.desc, 2)], explanation: `${cite(f)}\n${cite(pair)}` };
-          }
+    open: {
+      define(f) {
+        if (f.term) {
+          const t = f.term, k = termKind(f);
+          const prompt = t.refs ? contract(`¿Qué autores se asocian a ${termNP(f)}?`)
+            : t.generic ? `¿Qué se plantea como «${t.label.toLowerCase()}» en «${f.topic}»?`
+            : t.person ? `¿Qué idea se asocia con ${t.name}?` : isClause(t.desc) ? `¿Qué ocurre en ${termNP(f)}?` : `¿Qué ${linkVerb(t.desc)} ${termNP(f)}? Explícalo con los elementos que menciona el apunte.`;
+          const kp = t.refs ? refNames(t.desc).slice(0, 4) : keyIdeas(t.desc, 4);
+          return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
         }
-        const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}»?`
-          : t.generic ? `¿Qué se plantea como «${t.label.toLowerCase()}» en «${T}»?`
-          : t.person ? `¿Con qué se asocia a ${t.name}?`
-          : `Explica «${t.name}».`;
-        const kp = t.refs ? refNames(t.desc).slice(0, 4) : keyIdeas(t.desc, 4);
+        if (!f.subj) return null;
+        const s = f.subj, np = npLower(s);
+        const prompt = s.def ? `¿Qué ${s.copula} ${np}?` : s.proper && !s.det && !s.prefix ? `¿Qué hizo ${np} y por qué es relevante?` : contract(`¿Qué caracteriza a ${np}${prefixPhrase(s)}?`);
+        const kp = keyIdeas(card(f), 4, s.noun);
         return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
-      }
-      if (!f.subj) return null;
-      const s = f.subj, np = npLower(s), pp = prefixPhrase(s);
-      if (d === "hard" || d === "jacqueline") {
-        // Relacionar o comparar dos conceptos del mismo documento (mismo núcleo o mismo tema).
-        const headWord = normalize(s.noun.split(" ")[0]);
-        const cands = s.prefix ? [] : withSubj.filter((x) => x.fi === f.fi && !x.subj.prefix && !sameConcept(x, f) && usable(x, "open"));
-        const pair = (d === "jacqueline" ? cands.find((x) => normalize(x.subj.noun.split(" ")[0]) === headWord) : null) || cands.find((x) => x.topic === T);
-        if (pair) {
-          mark(pair, "open");
-          const other = npLower(pair.subj);
-          // Solo se pide «comparar» conceptos de la misma clase («entrevista abierta» y «entrevista cerrada»); si no, su relación.
-          const comparable = normalize(pair.subj.noun.split(" ")[0]) === headWord;
-          const prompt = d === "jacqueline"
-            ? (comparable ? `Compara ${np} y ${other}: ¿en qué se parecen y en qué se diferencian? Sé preciso con los datos.`
-              : `¿Qué relación hay entre ${np} y ${other}? Explícala con datos concretos.`)
-            : `Explica ${np} y ${other}, y cómo se relacionan.`;
-          return { ...base(f, "open"), focus: `${ucFirst(np)} y ${other}`, prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`, keyPoints: [...new Set([...keyIdeas(s.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
+      },
+      explain(f) {
+        if (!f.subj) return this.define(f);
+        const s = f.subj, np = npLower(s);
+        const prompt = s.def ? `Explica con tus palabras qué ${s.copula} ${np} y qué características ${s.plural ? "tienen" : "tiene"}.`
+          : `Explica qué se sabe de ${np}${prefixPhrase(s)} y menciona los datos concretos que aporta el apunte.`;
+        const kp = keyIdeas(card(f), 4, s.noun);
+        return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
+      },
+      // Difícil: relacionar dos conceptos del mismo tema.
+      relate(f, across = false) {
+        if (f.term && !f.term.generic) {
+          const pair = termPeers(f).find((x) => (across ? x.topic !== f.topic : x.topic === f.topic));
+          if (!pair) return null;
+          const k = termKind(f), t = f.term;
+          const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}» y cuáles a «${pair.term.name}»? Explica en qué se diferencian.`
+            : t.person ? `¿Con qué idea se asocia a ${t.name} y con cuál a ${pair.term.name}? Compáralas.`
+            : `Compara ${termNP(f)} con «${pair.term.name}»: ¿qué ${linkVerb(t.desc)} cada uno y en qué se diferencian?`;
+          return { ...base(f, "open"), focus: `${t.name} y ${pair.term.name}`, prompt, modelAnswer: `${card(f)}\n${card(pair)}`,
+            keyPoints: t.refs ? [...refNames(t.desc).slice(0, 2), ...refNames(pair.term.desc).slice(0, 2)] : [...keyIdeas(t.desc, 2), ...keyIdeas(pair.term.desc, 2)], explanation: `${cite(f)}\n${cite(pair)}` };
         }
-      }
-      // La pregunta pide solo lo que el material contesta: «¿qué es…?» únicamente si hay definición.
-      const prompt = s.def && d === "easy" ? `¿Qué ${s.copula} ${np}?`
-        : s.def ? `Describe ${np}: ¿qué ${s.plural ? "son" : "es"} y qué características ${s.plural ? "tienen" : "tiene"}?`
-        : s.proper && !s.det && !s.prefix ? `¿Qué hizo ${np} y por qué es relevante?`
-        : `¿Qué se afirma sobre ${np}${pp}?${d === "easy" ? "" : " Incluye los datos concretos."}`;
-      const kp = keyIdeas(card(f), 4, s.noun);
-      return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
+        if (!f.subj || f.subj.prefix) return null;
+        const s = f.subj, np = npLower(s), headWord = normalize(s.noun.split(" ")[0]);
+        const cands = shuffle(withSubj.filter((x) => !x.subj.prefix && !sameConcept(x, f) && (across ? x.topic !== f.topic : x.fi === f.fi && x.topic === f.topic)));
+        const pair = cands.find((x) => normalize(x.subj.noun.split(" ")[0]) === headWord) || cands[0];
+        if (!pair) return null;
+        const other = npLower(pair.subj), comparable = normalize(pair.subj.noun.split(" ")[0]) === headWord;
+        const prompt = across
+          ? `Relaciona ${np} (${f.topic}) con ${other} (${pair.topic}): ¿qué los conecta y en qué se diferencian? Apóyate en los datos del apunte.`
+          : comparable ? `Compara ${np} y ${other}: ¿en qué se parecen y en qué se diferencian?` : `¿Qué relación hay entre ${np} y ${other}? Explícala con datos concretos.`;
+        return { ...base(f, "open"), focus: `${ucFirst(np)} y ${other}`, prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`,
+          keyPoints: [...new Set([...keyIdeas(s.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
+      },
+      across(f) { return this.relate(f, true); },
     },
   };
 
+  // Qué variantes usa cada nivel, por tipo, en orden de preferencia (se baraja un poco para variar).
+  const PLAN = {
+    easy: { multiple_choice: ["def", "termLabel", "concept"], true_false: ["easy"], fill_blank: ["subject", "term"], open: ["define"] },
+    medium: { multiple_choice: ["concept", "termLabel", "termDesc", "def"], true_false: ["related"], fill_blank: ["keyword", "term", "subject"], open: ["explain", "define"] },
+    hard: { multiple_choice: ["correctStatement", "number", "termDesc", "concept"], true_false: ["subtle"], fill_blank: ["twoBlank", "number", "keyword"], open: ["relate", "explain"] },
+    jacqueline: { multiple_choice: ["incorrectStatement", "correctStatement", "number"], true_false: ["compound", "subtle"], fill_blank: ["threeBlank", "twoBlank", "number"], open: ["across", "relate"] },
+  }[d];
+  // Afinidad de cada hecho con el nivel: fácil → definiciones; difícil → cifras, nombres y oraciones largas.
+  const weight = (f) => (d === "easy" ? (f.subj?.def ? 3 : f.term && !f.term.refs ? 2 : f.subj || f.term ? 1 : 0) - f.text.length / 250
+    : d === "medium" ? (f.subj ? 1.5 : f.term ? 1.2 : 0.3)
+    : (f.numbers.length ? 2 : 0) + (f.term?.refs || f.subj?.proper ? 1 : 0) + (f.subj || f.term ? 1 : 0) + f.text.length / 200);
+
+  const topicKey = (f) => f.fi + "|" + f.topic;
+  const byTopic = new Map();
+  for (const f of facts) { const k = topicKey(f); if (!byTopic.has(k)) byTopic.set(k, []); byTopic.get(k).push(f); }
+  const topicUse = new Map([...byTopic.keys()].map((k) => [k, 0]));
+  const usedHere = new Map(); // hecho → tipos usados en este test
   const questions = [];
   for (const type of distribute(cfg.modes, cfg.count)) {
     let made = null;
-    for (const f of ranked) {
-      if (!usable(f, type)) continue;
-      const q = build[type](f);
-      if (q && saneQuestion(q) && !questions.some((x) => x.prompt === q.prompt)) {
-        // Si el concepto preguntado es la respuesta, el subtema describe lo que se pregunta sin nombrarlo.
-        if (revealsAnswer(q)) q.focus = f.term ? (f.term.refs ? `Autores: ${refNames(f.term.desc).slice(0, 3).join(", ")}` : shortPhrase(f.term.desc))
-          : f.subj ? (f.subj.def ? shortPhrase(f.subj.def) : shortPhrase(f.subj.pred, 6, true)) : q.focus;
-        made = q; mark(f, type); break;
+    // Temas menos usados primero (y al azar entre iguales): el test recorre todo el documento.
+    const topicOrder = shuffle([...byTopic.keys()]).sort((a, b) => topicUse.get(a) - topicUse.get(b));
+    const vlist = PLAN[type].slice(0, 1).concat(shuffle(PLAN[type].slice(1)));
+    for (const tk of topicOrder) {
+      // Dentro del tema: primero lo no preguntado antes en la sesión, luego afinidad con el nivel + azar.
+      const cands = byTopic.get(tk).filter((f) => !(usedHere.get(f.id) || []).includes(type) && (usedHere.get(f.id) || []).length < 2)
+        .map((f) => ({ f, s: (prevFacts.has(factKey(f)) ? -6 : 0) - (usedHere.has(f.id) ? 3 : 0) + weight(f) + Math.random() * 2.5 }))
+        .sort((a, b) => b.s - a.s).slice(0, 8).map((x) => x.f);
+      for (const f of cands) {
+        for (const v of Math.random() < 0.7 ? vlist : shuffle(vlist)) {
+          const q = variants[type][v]?.call(variants[type], f);
+          if (!q || !saneQuestion(q) || questions.some((x) => x.prompt === q.prompt) || prevPrompts.has(normalize(cleanPrompt(q.prompt)))) continue;
+          if (revealsAnswer(q)) {
+            const alts = f.term ? [f.term.refs ? `Autores: ${refNames(f.term.desc).slice(0, 3).join(", ")}` : shortPhrase(f.term.desc)]
+              : [f.subj?.def && shortPhrase(f.subj.def), f.subj && shortPhrase(f.subj.pred, 6, true), nameChain(f.text)];
+            q.focus = alts.filter(Boolean).find((c) => c.split(" ").length > 1 && !revealsAnswer({ ...q, focus: c })) || "";
+          }
+          made = q; usedHere.set(f.id, [...(usedHere.get(f.id) || []), type]); topicUse.set(tk, topicUse.get(tk) + 1);
+          break;
+        }
+        if (made) break;
       }
+      if (made) break;
     }
     if (made) questions.push(made);
   }
-  if (!questions.length) throw new Error("No se pudieron generar preguntas con este material en modo demo: tiene muy pocas oraciones completas. Prueba con documentos Word, PDF o de texto con párrafos completos, o usa With Gemini o tu cuenta de Claude.");
+  if (!questions.length) throw new Error("No se pudieron generar preguntas con este material en modo demo: tiene muy pocas oraciones completas. Prueba con documentos Word, PDF o de texto con párrafos completos, o usa With Gemini.");
   return { questions: shuffle(questions.map((q) => safeFocus({ ...q, prompt: ucFirst(cleanPrompt(q.prompt)) }))), coverage: 100 };
 }
 
@@ -1462,7 +1649,7 @@ const FEATURES = [
   ["upload", "sky", "Sube lo que tengas", "PDF, Word, PowerPoint, Google Docs, Canva y fotos de tus cuadernos. Sin límite de archivos: puedes arrastrar carpetas completas."],
   ["eye", "mint", "Lee hasta tu letra", "Saca el texto de documentos, imágenes y fotos de la pizarra. Con IA entiende también los apuntes escritos a mano."],
   ["list", "lav", "Cuatro tipos de pregunta", "Selección múltiple, verdadero o falso, completar y pregunta abierta. Combina hasta tres en un mismo test."],
-  ["target", "peach", "Tú eliges el nivel", "Fácil, Medio, Difícil o Jacqueline, el más exigente. También decides cuántas preguntas quieres."],
+  ["target", "peach", "Tú eliges el nivel", "Fácil, Medio, Difícil (POVEDA) o Jacqueline, el más exigente: cada nivel cambia el tipo de preguntas. También decides cuántas quieres."],
   ["bolt", "butter", "Corrección al momento", "En selección y verdadero o falso sabes al instante si acertaste. En completar y abiertas ves la respuesta del documento y te autoevalúas, o la IA te corrige."],
   ["chart", "rose", "Resultados claros", "Nota, porcentaje, aciertos por tipo de pregunta y repaso completo. Repite el mismo test o pide preguntas nuevas."],
   ["clock", "sky", "Historial como chats", "Cada sesión de estudio queda guardada en la barra lateral para retomarla cuando quieras."],
@@ -2509,16 +2696,18 @@ function App() {
     const excluded = new Set(current.excluded);
     const files = current.files.filter((f) => f.status === "ready" && !excluded.has(f.id));
     const avoid = current.quizzes.flatMap((q) => q.questions.map((x) => x.prompt));
+    // El modo demo evita repetir lo ya preguntado en esta sesión (mismos hechos y mismos enunciados).
+    const history = { facts: current.quizzes.flatMap((q) => q.questions.map((x) => x.fact).filter(Boolean)), prompts: avoid };
     setGenerating(ai ? `${ai.label} está leyendo tu material…` : "Generando preguntas con el motor demo local…");
     try {
       let res, used = engineLabel;
       if (ai) {
         try { res = await aiGenerate(ai, files, cfg, avoid, setGenerating); }
         catch (e) {
-          if (e && DISABLE_CODES.has(e.code)) { onAIError(e); toast(aiErrorText(e), "peach"); res = generateLocal(files, cfg); used = "Demo local · sin IA"; }
+          if (e && DISABLE_CODES.has(e.code)) { onAIError(e); toast(aiErrorText(e), "peach"); res = generateLocal(files, cfg, history); used = "Demo local · sin IA"; }
           else throw e;
         }
-      } else { await sleep(250); res = generateLocal(files, cfg); }
+      } else { await sleep(250); res = generateLocal(files, cfg, history); }
       if (res.questions.length < cfg.count) toast(`Se generaron ${res.questions.length} de ${cfg.count} preguntas con el material disponible.`, "butter");
       if (res.coverage < 100) toast(`Tu material es extenso: se usó ~${res.coverage}% del texto, muestreado de todas las secciones.`, "butter");
       const q = { id: uid(), createdAt: Date.now(), engine: used.startsWith("Demo") ? "demo" : "ai", engineLabel: used, config: cfg, questions: res.questions, answers: {}, current: 0, finishedAt: null, pct: 0, attempts: [] };

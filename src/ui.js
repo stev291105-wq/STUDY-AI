@@ -41,7 +41,7 @@ const FEATURES = [
   ["upload", "sky", "Sube lo que tengas", "PDF, Word, PowerPoint, Google Docs, Canva y fotos de tus cuadernos. Sin límite de archivos: puedes arrastrar carpetas completas."],
   ["eye", "mint", "Lee hasta tu letra", "Saca el texto de documentos, imágenes y fotos de la pizarra. Con IA entiende también los apuntes escritos a mano."],
   ["list", "lav", "Cuatro tipos de pregunta", "Selección múltiple, verdadero o falso, completar y pregunta abierta. Combina hasta tres en un mismo test."],
-  ["target", "peach", "Tú eliges el nivel", "Fácil, Medio, Difícil o Jacqueline, el más exigente. También decides cuántas preguntas quieres."],
+  ["target", "peach", "Tú eliges el nivel", "Fácil, Medio, Difícil (POVEDA) o Jacqueline, el más exigente: cada nivel cambia el tipo de preguntas. También decides cuántas quieres."],
   ["bolt", "butter", "Corrección al momento", "En selección y verdadero o falso sabes al instante si acertaste. En completar y abiertas ves la respuesta del documento y te autoevalúas, o la IA te corrige."],
   ["chart", "rose", "Resultados claros", "Nota, porcentaje, aciertos por tipo de pregunta y repaso completo. Repite el mismo test o pide preguntas nuevas."],
   ["clock", "sky", "Historial como chats", "Cada sesión de estudio queda guardada en la barra lateral para retomarla cuando quieras."],
@@ -1088,16 +1088,18 @@ function App() {
     const excluded = new Set(current.excluded);
     const files = current.files.filter((f) => f.status === "ready" && !excluded.has(f.id));
     const avoid = current.quizzes.flatMap((q) => q.questions.map((x) => x.prompt));
+    // El modo demo evita repetir lo ya preguntado en esta sesión (mismos hechos y mismos enunciados).
+    const history = { facts: current.quizzes.flatMap((q) => q.questions.map((x) => x.fact).filter(Boolean)), prompts: avoid };
     setGenerating(ai ? `${ai.label} está leyendo tu material…` : "Generando preguntas con el motor demo local…");
     try {
       let res, used = engineLabel;
       if (ai) {
         try { res = await aiGenerate(ai, files, cfg, avoid, setGenerating); }
         catch (e) {
-          if (e && DISABLE_CODES.has(e.code)) { onAIError(e); toast(aiErrorText(e), "peach"); res = generateLocal(files, cfg); used = "Demo local · sin IA"; }
+          if (e && DISABLE_CODES.has(e.code)) { onAIError(e); toast(aiErrorText(e), "peach"); res = generateLocal(files, cfg, history); used = "Demo local · sin IA"; }
           else throw e;
         }
-      } else { await sleep(250); res = generateLocal(files, cfg); }
+      } else { await sleep(250); res = generateLocal(files, cfg, history); }
       if (res.questions.length < cfg.count) toast(`Se generaron ${res.questions.length} de ${cfg.count} preguntas con el material disponible.`, "butter");
       if (res.coverage < 100) toast(`Tu material es extenso: se usó ~${res.coverage}% del texto, muestreado de todas las secciones.`, "butter");
       const q = { id: uid(), createdAt: Date.now(), engine: used.startsWith("Demo") ? "demo" : "ai", engineLabel: used, config: cfg, questions: res.questions, answers: {}, current: 0, finishedAt: null, pct: 0, attempts: [] };
