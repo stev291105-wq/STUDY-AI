@@ -11,7 +11,7 @@ const ICONS = {
   moon: "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z", auto: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18",
   pencil: "M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4", logout: "M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11",
   spark: "M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6z", arrow: "M5 12h14M13 6l6 6-6 6",
-  refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7", file: "M6 3h8l4 4v14H6zM14 3v4h4", cpu: "M7 7h10v10H7zM9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4",
+  text: "M4 5h16M4 10h16M4 15h10M4 20h7", refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7", file: "M6 3h8l4 4v14H6zM14 3v4h4", cpu: "M7 7h10v10H7zM9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4",
   user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
   eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", list: "M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01",
   target: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 12h.01", bolt: "M13 3L5 14h6l-1 7 8-11h-6z",
@@ -534,6 +534,58 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, claudeDiag, api, setA
   </section>`;
 }
 
+// Pegar texto directamente: se añade como un documento .txt más (sin extracción ni OCR, se analiza al instante).
+// El área de texto no es controlada por React para que pegar textos enormes no congele la página.
+function PasteText({ onAdd, pastedCount }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [hasText, setHasText] = useState(false);
+  const area = useRef(null), counter = useRef(null), raf = useRef(0);
+  const recount = () => {
+    cancelAnimationFrame(raf.current);
+    raf.current = requestAnimationFrame(() => {
+      const n = area.current?.value.length || 0;
+      if (counter.current) counter.current.textContent = `${n.toLocaleString("es")} caracteres`;
+      setHasText(n > 0);
+    });
+  };
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  const add = () => {
+    const text = (area.current?.value || "").replace(/\r\n?/g, "\n").trim();
+    if (!text) return;
+    const first = (text.split("\n").find((l) => l.trim()) || "").trim();
+    const name = (title.trim() || (first.length <= 80 ? first : "") || `Texto pegado ${pastedCount + 1}`)
+      .replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || `Texto pegado ${pastedCount + 1}`;
+    onAdd(new File([text], name + ".txt", { type: "text/plain" }));
+    area.current.value = ""; setTitle(""); recount(); setOpen(false);
+  };
+  const recommend = html`<span className="pill tone-butter !text-[11px]">★ Recomendado</span>`;
+  const why = html`<span className="text-xs" style=${{ color: "rgb(var(--muted))" }}>(si usas el modo demo sin IA, ya que el texto pegado aquí será más simple y requiere menos procesamiento)</span>`;
+  if (!open) return html`<button className="paste-toggle" onClick=${() => { setOpen(true); setTimeout(() => area.current?.focus(), 30); }}>
+    <${IconTile} name="text" tone="butter" size=${18} className="!w-10 !h-10" />
+    <span className="min-w-0 flex flex-col items-start gap-0.5 text-left">
+      <span className="flex flex-wrap items-center gap-2"><b>Añadir texto</b>${recommend}</span>
+      <span className="text-sm" style=${{ color: "rgb(var(--muted))" }}>Pega tus apuntes, resúmenes o capítulos completos, aunque sean muy largos.</span>
+      ${why}
+    </span>
+    <${Icon} name="plus" />
+  </button>`;
+  return html`<section className="paste-box flex flex-col gap-3" aria-label="Añadir texto">
+    <div className="flex flex-wrap items-center gap-2"><${IconTile} name="text" tone="butter" size=${16} className="!w-8 !h-8" /><b>Añadir texto</b>${recommend}</div>
+    ${why}
+    <input className="field" placeholder="Título (opcional)" value=${title} maxLength="80" onInput=${(e) => setTitle(e.target.value)} aria-label="Título del texto" />
+    <textarea ref=${area} className="field min-h-[220px] max-h-[60vh] resize-y leading-relaxed" spellCheck="false" onInput=${recount}
+      placeholder=${"Pega aquí tu texto. Puede ser tan largo como quieras.\nConserva los títulos de cada apartado (una línea corta sin punto final) para que cada pregunta muestre su temática."} aria-label="Texto para estudiar"></textarea>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <span ref=${counter} className="mono text-sm" style=${{ color: "rgb(var(--muted))" }}>0 caracteres</span>
+      <span className="flex gap-2">
+        <button className="btn btn-ghost !py-2" onClick=${() => { if (area.current) area.current.value = ""; setTitle(""); recount(); setOpen(false); }}>Cancelar</button>
+        <button className="btn btn-primary !py-2" disabled=${!hasText} onClick=${add}><${Icon} name="plus" size=${16} /> Añadir</button>
+      </span>
+    </div>
+  </section>`;
+}
+
 function MaterialStep({ session, modePanel, onFiles, onSample, onRemove, onToggle, onNext }) {
   const input = useRef(null), folder = useRef(null);
   const [over, setOver] = useState(false);
@@ -561,6 +613,8 @@ function MaterialStep({ session, modePanel, onFiles, onSample, onRemove, onToggl
         <input ref=${input} type="file" multiple accept=${ACCEPT} hidden onChange=${(e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) onFiles(fs); }} />
         <input ref=${folder} type="file" multiple webkitdirectory="" hidden onChange=${(e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) onFiles(fs); }} />
       </div>
+
+      <${PasteText} pastedCount=${files.filter((f) => /^Texto pegado \d+\.txt$/.test(f.name)).length} onAdd=${(f) => onFiles([f])} />
 
       ${files.length > 0 && html`<div className="flex flex-col gap-2">
         <div className="flex justify-between text-sm font-bold"><span>${files.length} archivo(s) · ${ready.length} listo(s)</span><span className="mono" style=${{ color: "rgb(var(--muted))" }}>${chars.toLocaleString("es")} caracteres</span></div>
@@ -751,7 +805,7 @@ function QuizStep({ quiz, aiOk, onChoice, onSubmitText, onSelfEval, onAIValidate
       </div>
 
       ${q.type === "fill_blank"
-        ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium whitespace-pre-line">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${"hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1)}
+        ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium whitespace-pre-line">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${q.hints?.[i] || "hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1) + (q.hints?.[i] ? ": " + q.hints[i] : "")}
             onInput=${(e) => { const v = [...values]; v[i] = e.target.value; setValues(v); }} onKeyDown=${(e) => { if (e.key === "Enter" && !a) { e.preventDefault(); submitText(); } }} />`}</span>`)}</p>`
         : html`<p className="text-lg md:text-xl leading-relaxed font-medium whitespace-pre-line">${q.prompt}</p>`}
 

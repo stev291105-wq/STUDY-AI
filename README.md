@@ -22,6 +22,7 @@ Dónde conseguir una key: [Google AI Studio](https://aistudio.google.com/apikey)
 ## Funciones
 
 - Carga ilimitada de archivos y carpetas (arrastrar y soltar): PDF, DOCX, PPTX, PNG, JPG, WEBP, GIF, TXT/MD/CSV.
+- **Añadir texto** (★ recomendado para el modo demo): pega directamente apuntes o capítulos completos, aunque sean enormes; se añade como un documento TXT más, se analiza al instante (sin extracción ni OCR) y conserva los títulos para detectar la temática.
 - OCR de imágenes incrustadas y páginas escaneadas; lectura de manuscritos con IA (modos 2 y 3).
 - Hasta 3 modalidades combinadas (la cuarta se bloquea), 4 niveles de dificultad y de 1 a 100 preguntas. Cada nivel cambia el tipo de pregunta: Fácil (definiciones y datos literales), Medio (identificar conceptos y palabras clave), **Difícil (POVEDA)** («¿cuál es correcta?», cifras exactas, dos huecos, relaciones) y Jacqueline («¿cuál es INCORRECTA?», afirmaciones compuestas, tres huecos y comparaciones entre temas o documentos).
 - El modo demo reparte las preguntas entre todos los apartados del material y no repite lo ya preguntado en la sesión: cada test nuevo usa otras partes del documento.

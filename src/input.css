@@ -230,6 +230,11 @@
   .q-card { border-radius: 28px; }
   @media (max-width: 640px) { .steps { border-radius: 20px; display: grid; grid-template-columns: 1fr 1fr; width: 100%; } .step-tab { padding-right: 10px; } }
   .progress { height: 8px; border-radius: 999px; overflow: hidden; background: rgb(var(--surface-2)); }
+  /* Añadir texto pegado */
+  .paste-toggle { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 16px; border-radius: 20px; border: 1.5px dashed rgb(var(--line)); background: rgb(var(--butter) / .45); color: rgb(var(--ink)); transition: border-color .2s, background-color .2s, transform .2s var(--ease); }
+  .paste-toggle:hover { border-color: rgb(var(--sun)); background: rgb(var(--butter) / .75); transform: translateY(-1px); }
+  .paste-toggle > svg { margin-left: auto; flex: none; }
+  .paste-box { padding: 16px; border-radius: 20px; background: rgb(var(--surface-2) / .6); border: 1.5px solid rgb(var(--line-soft)); }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }

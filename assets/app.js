@@ -661,7 +661,8 @@ function headingLike(line) {
   if (t.length < 3 || t.length > 70 || /[.;,]$/.test(line.trim())) return false;
   if (t.split(/\s+/).length > 9 || !/^[\p{Lu}\d¿¡]/u.test(t)) return false;
   if (/:\s+\S/.test(t) && !/^(unidad|tema|cap[ií]tulo|m[oó]dulo|bloque|parte|secci[oó]n|lecci[oó]n|resumen|apuntes|gu[ií]a|introducci[oó]n|repaso)\b/i.test(t)) return false;
-  return (t.match(/\p{L}/gu) || []).length / t.length > 0.6;
+  // Letras frente al resto de signos (sin contar espacios ni cifras: «Tema 12 (pág. 120)» sigue siendo un título).
+  return (t.match(/\p{L}/gu) || []).length / Math.max(1, t.replace(/[\s\d]/g, "").length) > 0.75;
 }
 const BULLET = /^(?:[•\-–*·▪►]\s*|\d{1,2}[.)]\s+)/;
 const JOINER = /\b(de|del|la|el|los|las|y|e|o|u|que|en|a|al|con|por|para|un|una|su|sus|se|lo|como|entre|sobre|sin|desde|hasta)$/i;
@@ -786,7 +787,9 @@ const hasVerb = (t) => {
   return w.some((x, i) => VERB_WORDS.has(normalize(x)) || (x.length > 3 && /(?:ó|aron|ieron|aba|aban|ían)$/.test(x)) || (/^(se|no|lo|le|les|nos)$/.test(w[i - 1] || "") && x.length > 2 && !isStop(x)));
 };
 // Oraciones que dependen de la anterior («Esta obra…», «Además…»): se muestran con su contexto.
-const ANAPHOR = /^(este|esta|estos|estas|esto|ello|dicho|dicha|dichos|dichas|su|sus|además|también|asimismo|así|por ello|por eso|por lo tanto|sin embargo|en cambio|incluye|incluyen|permite|permiten)\b/i;
+const ANAPHOR = /^(este|esta|estos|estas|esto|ello|dicho|dicha|dichos|dichas|su|sus|así|por ello|por eso|por lo tanto|por esta razón|por este motivo|de ahí|de este modo|de esta manera|sin embargo|no obstante|en cambio|incluye|incluyen|permite|permiten|él|ella|ellos|ellas|ambos|ambas|el primero|el segundo|la primera|la segunda|este último|esta última|lo anterior|los anteriores|las anteriores|tal|tales|allí|aquí|entonces)\b/i;
+// Conectores que solo enlazan con lo anterior («Además, …»): se quitan y la oración queda completa por sí sola.
+const ADDITIVE = /^(además|asimismo|también|igualmente|por otro lado|por otra parte|finalmente|por último|en primer lugar|en segundo lugar|en tercer lugar|luego|después|a su vez)\s*,\s*/i;
 // Etiquetas genéricas de esquema: valen para preguntas abiertas, no para confundir conceptos entre sí.
 const GEN_LABEL = /^(objetivos?|ejemplos?|nota|notas|definici[oó]n|concepto|importante|resumen|caracter[ií]sticas?|funci[oó]n|funciones|causas?|consecuencias?|ventajas?|desventajas?|tipos?|clasificaci[oó]n|idea principal|conclusi[oó]n|conclusiones|autores?|fuente|observaci[oó]n|finalidad|prop[oó]sito|etapas?|fases?)$/i;
 /** «Período psicométrico: Binet (1905), Terman (1916)…» → {label, desc}. Null si es una oración normal con dos puntos. */
@@ -860,7 +863,8 @@ function buildFacts(files) {
           return;
         }
         para.split(/(?<=[.!?])\s+(?=[\p{Lu}¿¡«"\d])/u).forEach((raw) => {
-          const t = raw.replace(/\s+/g, " ").trim();
+          let t = raw.replace(/\s+/g, " ").trim();
+          if (ADDITIVE.test(t)) t = ucFirst(t.replace(ADDITIVE, ""));
           if (t.length >= 12) all.push({ t, topic: base.topic });
           const words = t.split(" ");
           const letters = (t.match(/\p{L}/gu) || []).length / Math.max(1, t.length);
@@ -882,7 +886,8 @@ function buildFacts(files) {
     // Una oración sin sujeto reconocible ni verbo es un fragmento: no sirve para preguntar.
     if (!subj && !hasVerb(s.text)) return;
     // También dependen de la anterior las que remiten a algo ya dicho («el símbolo de este periodo»).
-    const anaphoric = ANAPHOR.test(s.text) || /\b(este|esta|estos|estas|dicho|dicha|dichos|dichas|aquel|aquella)\s+\p{L}/iu.test(s.text);
+    const anaphoric = ANAPHOR.test(s.text) || /\b(este|esta|estos|estas|dicho|dicha|dichos|dichas|aquel|aquella)\s+\p{L}/iu.test(s.text)
+      || /\b(lo anterior|los anteriores|las anteriores|mencionad[oa]s? (anteriormente|antes)|ya mencionad[oa]s?|citad[oa]s? anteriormente)\b/i.test(s.text);
     if (anaphoric && !ctx.before) return;
     // Cifras de la prosa; los años de las citas («Sternberg (1998)») y las páginas no son datos que estudiar.
     const prose = s.text.replace(/\([^)]*\)/g, " ").replace(/\b(?:p[áa]gs?|pp?)\.\s*\d+/gi, " ");
@@ -988,12 +993,27 @@ function safeFocus(q) {
 /** Revisión final de sentido: descarta preguntas mal formadas, venga de la IA o de las reglas. */
 function saneQuestion(q) {
   if (!q || !q.prompt || q.prompt.replace(new RegExp(BLANK, "g"), "").trim().length < 12) return false;
+  const p = q.prompt;
+  // Completa: sin cortes («…», «...») y con comillas y paréntesis cerrados.
+  if (/…|\.\.\./.test(p) || (p.match(/«/g) || []).length !== (p.match(/»/g) || []).length || (p.match(/\(/g) || []).length !== (p.match(/\)/g) || []).length) return false;
+  const shown = normalize(p.split(BLANK).join(" "));
+  const visible = (a) => { const n = normalize(a); return n.length >= 4 && new RegExp(`(^| )${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`).test(shown); };
   if (q.type === "multiple_choice") {
-    const n = q.options.map(normalize);
-    if (n.some((x) => !x) || new Set(n).size !== n.length) return false;
+    const n = (q.options || []).map(normalize);
+    if (n.length < 3 || n.some((x) => !x) || new Set(n).size !== n.length || !(q.answerIndex >= 0 && q.answerIndex < n.length)) return false;
+    // Opciones del mismo tipo: todas cifras o ninguna; y la correcta no puede leerse ya en el enunciado.
+    const num = n.map((x) => /^\d+([.,]\d+)?$/.test(x));
+    if (num.some((x) => x !== num[q.answerIndex])) return false;
+    if (!num[q.answerIndex] && visible(q.options[q.answerIndex])) return false;
   }
-  if (q.type === "true_false" && q.prompt.includes(BLANK)) return false;
-  if (q.type === "fill_blank" && q.answers.some((v) => !v.length || v.every((x) => isStop(x) || normalize(x).length < 2))) return false;
+  if (q.type === "true_false" && (p.includes(BLANK) || p.replace(/^Contexto:[^\n]*\n/, "").trim().length < 20)) return false;
+  if (q.type === "fill_blank") {
+    const blanks = p.split(BLANK).length - 1;
+    if (!blanks || blanks !== q.answers.length) return false;
+    if (q.answers.some((v) => !v.length || v.every((x) => isStop(x) || normalize(x).length < 2))) return false;
+    // La respuesta no puede aparecer escrita en el resto de la oración.
+    if (q.answers.some((v) => !/^\d/.test(v[0]) && visible(v[0]))) return false;
+  }
   if (q.type === "open" && (!q.modelAnswer || q.modelAnswer.length < 20)) return false;
   return true;
 }
@@ -1110,11 +1130,16 @@ function generateLocal(files, cfg, history = {}) {
     return out.filter((x) => !sentences.has(normalize(x.text)) && x.text !== f.text);
   };
   const lc = (t) => t.charAt(0).toLowerCase() + t.slice(1);
+  // Fuente citada al inicio («Según Endara (1987), …» → «Endara (1987)»), para preguntar «¿Qué afirma Endara (1987) sobre…?».
+  const sourceOf = (s) => (s.prefix.match(/^según\s+(.+?),\s*$/i) || [])[1] || "";
+  // Qué se espera en el hueco del sujeto: un concepto o el nombre de una persona.
+  const subjHint = (f) => (f.subj?.proper && !f.subj.det ? "autor o nombre" : "concepto");
   // Palabra clave del predicado (no el sujeto) para huecos de nivel medio en adelante.
   const keyword = (f) => {
     if (!f.subj) return null;
     const skip = normalize(f.subj.noun);
-    return keyIdeas(f.subj.pred, 6, f.subj.noun).filter((w) => w.length >= 5 && !/\d/.test(w) && !skip.includes(normalize(w)))[Math.random() < 0.5 ? 0 : 1] || null;
+    // Sin nombres propios sueltos («Hermann» de «Hermann Rorschach»): el hueco debe ser una palabra con sentido propio.
+    return keyIdeas(f.subj.pred, 6, f.subj.noun).filter((w) => w.length >= 5 && !/\d/.test(w) && !isCap(w) && !VERB_WORDS.has(normalize(w)) && !skip.includes(normalize(w)))[Math.random() < 0.5 ? 0 : 1] || null;
   };
 
   const variants = {
@@ -1130,7 +1155,7 @@ function generateLocal(files, cfg, history = {}) {
         const opts = optionsWith(f.subj.npText, peers(f, { order: d === "easy" ? "far" : "near" }).map((x) => x.subj.npText));
         if (!opts) return null;
         const stem = f.subj.prefix ? `${f.subj.prefix}${BLANK} ${f.subj.pred}` : `${BLANK} ${f.subj.pred}`;
-        return { ...base(f, "multiple_choice"), prompt: `${lead(f)}¿Qué concepto completa correctamente esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.npText)),
+        return { ...base(f, "multiple_choice"), prompt: `${lead(f)}¿Qué ${f.subj.proper && !f.subj.det ? "autor o personaje" : "concepto"} completa correctamente esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.npText)),
           explanation: `La respuesta correcta es «${f.subj.npText}».\n${cite(f)}` };
       },
       termLabel(f) {
@@ -1166,11 +1191,11 @@ function generateLocal(files, cfg, history = {}) {
         if (f.anaphoric || f.text.length > 230) return null;
         const pool = shuffle(facts.filter((g) => g.fi === f.fi && g.id !== f.id && !g.anaphoric && g.text.length <= 230)).sort((a, b) => (b.topic === f.topic) - (a.topic === f.topic));
         const wrong = [], whys = [];
-        for (const g of pool) { const x = falsesOf(g)[0]; if (x && !wrong.includes(x.text)) { wrong.push(x.text); whys.push(x.why); } if (wrong.length >= nOpts - 1) break; }
+        for (const g of pool) { const x = falsesOf(g)[0]; if (x && !wrong.includes(x.text)) { wrong.push(x.text); whys.push(`• “${stripEnd(x.text)}”: ${x.why}`); } if (wrong.length >= nOpts - 1) break; }
         if (wrong.length < 2) return null;
         const opts = shuffle([stmt(f), ...wrong]);
         return { ...base(f, "multiple_choice"), focus: "", prompt: "¿Cuál de las siguientes afirmaciones es correcta?", options: opts, answerIndex: opts.indexOf(stmt(f)),
-          explanation: `La correcta es: “${stmt(f)}”. Las demás alteran el apunte: ${whys.join(" ")}\nFuente: «${f.doc}» · ${f.loc}.` };
+          explanation: `La correcta es: “${stripEnd(stmt(f))}”.\nLas demás alteran el apunte:\n${whys.join("\n")}\nFuente: «${f.doc}» · ${f.loc}.` };
       },
       // Jacqueline: la única afirmación INCORRECTA entre hechos verdaderos de otros temas o documentos.
       incorrectStatement(f) {
@@ -1182,7 +1207,7 @@ function generateLocal(files, cfg, history = {}) {
         if (trues.length < 2) return null;
         const opts = shuffle([x.text, ...trues]);
         return { ...base(f, "multiple_choice"), focus: "Afirmaciones de varios temas", prompt: "¿Cuál de las siguientes afirmaciones es INCORRECTA?", options: opts, answerIndex: opts.indexOf(x.text),
-          explanation: `La incorrecta es: “${x.text}”. ${x.why} Las demás coinciden con el apunte.\n${cite(f)}` };
+          explanation: `La incorrecta es: “${stripEnd(x.text)}”. ${x.why} Las demás coinciden con el apunte.\n${cite(f)}` };
       },
     },
 
@@ -1219,7 +1244,7 @@ function generateLocal(files, cfg, history = {}) {
     fill_blank: {
       subject(f) {
         if (!f.subj) return null;
-        return { ...base(f, "fill_blank"), prompt: lead(f) + replaceOnce(f.text, f.subj.noun, BLANK), answers: [[...new Set([f.subj.noun, f.subj.npText])]],
+        return { ...base(f, "fill_blank"), prompt: lead(f) + replaceOnce(f.text, f.subj.noun, BLANK), answers: [[...new Set([f.subj.noun, f.subj.npText])]], hints: [subjHint(f)],
           explanation: `La respuesta es «${f.subj.noun}».\n${cite(f)}` };
       },
       term(f) {
@@ -1229,26 +1254,26 @@ function generateLocal(files, cfg, history = {}) {
           : t.person ? `La idea «${t.desc}» se asocia con el autor ${BLANK}.`
           : isClause(t.desc) ? `${art(k, true)} ${k.n} en ${k.g === "f" ? "la" : "el"} que ${t.desc} se llama ${BLANK}.`
           : `${art(k, true)} ${k.n} que ${linkVerb(t.desc)} «${t.desc}» se llama ${BLANK}.`;
-        return { ...base(f, "fill_blank"), prompt, answers: [[...new Set([t.name, t.label])]], explanation: `La respuesta es «${t.name}».\n${cite(f)}` };
+        return { ...base(f, "fill_blank"), prompt, answers: [[...new Set([t.name, t.label])]], hints: [t.person ? "autor" : `nombre del ${k.n}`], explanation: `La respuesta es «${t.name}».\n${cite(f)}` };
       },
       keyword(f) {
         const w = keyword(f);
         if (!w || !f.text.includes(w)) return null;
         const i = f.text.indexOf(w, f.text.indexOf(f.subj.noun) + f.subj.noun.length);
         if (i < 0) return null;
-        return { ...base(f, "fill_blank"), prompt: lead(f) + f.text.slice(0, i) + BLANK + f.text.slice(i + w.length), answers: [[w]], explanation: `La palabra que falta es «${w}».\n${cite(f)}` };
+        return { ...base(f, "fill_blank"), prompt: lead(f) + f.text.slice(0, i) + BLANK + f.text.slice(i + w.length), answers: [[w]], hints: ["palabra clave"], explanation: `La palabra que falta es «${w}».\n${cite(f)}` };
       },
       number(f) {
         if (!f.numbers.length) return null;
         const n = f.numbers[0];
-        return { ...base(f, "fill_blank"), prompt: lead(f) + replaceOnce(f.text, n, BLANK), answers: [[n]], explanation: `El dato que falta es ${n}.\n${cite(f)}` };
+        return { ...base(f, "fill_blank"), prompt: lead(f) + replaceOnce(f.text, n, BLANK), answers: [[n]], hints: ["cifra"], explanation: `El dato que falta es ${n}.\n${cite(f)}` };
       },
       // Difícil: el concepto y un dato (cifra o palabra clave) a la vez.
       twoBlank(f) {
         if (f.term && f.term.refs && !f.term.generic) {
           const who = refNames(f.term.desc)[0], k = termKind(f);
           if (!who) return null;
-          return { ...base(f, "fill_blank"), prompt: hasKind(f, k) ? `Los autores ${replaceOnce(f.term.desc, who, BLANK)} se asocian a ${BLANK}.` : contract(`Los autores ${replaceOnce(f.term.desc, who, BLANK)} se asocian a ${art(k)} ${k.n} ${BLANK}.`), answers: [[who], [...new Set([f.term.name, f.term.label])]],
+          return { ...base(f, "fill_blank"), prompt: hasKind(f, k) ? `Los autores ${replaceOnce(f.term.desc, who, BLANK)} se asocian a ${BLANK}.` : contract(`Los autores ${replaceOnce(f.term.desc, who, BLANK)} se asocian a ${art(k)} ${k.n} ${BLANK}.`), answers: [[who], [...new Set([f.term.name, f.term.label])]], hints: ["autor", `nombre del ${k.n}`],
             explanation: `Respuestas: «${who}» y «${f.term.name}».\n${cite(f)}` };
         }
         if (!f.subj || f.subj.proper) return null;
@@ -1257,20 +1282,20 @@ function generateLocal(files, cfg, history = {}) {
         let prompt = replaceOnce(f.text, f.subj.noun, BLANK);
         if (!prompt.includes(second)) return null;
         prompt = replaceOnce(prompt, second, BLANK);
-        return { ...base(f, "fill_blank"), prompt: lead(f) + prompt, answers: [[...new Set([f.subj.noun, f.subj.npText])], [second]], explanation: `Respuestas: «${f.subj.noun}» y «${second}».\n${cite(f)}` };
+        return { ...base(f, "fill_blank"), prompt: lead(f) + prompt, answers: [[...new Set([f.subj.noun, f.subj.npText])], [second]], hints: [subjHint(f), /^\d/.test(second) ? "cifra" : "palabra clave"], explanation: `Respuestas: «${f.subj.noun}» y «${second}».\n${cite(f)}` };
       },
       // Jacqueline: tres huecos (concepto, cifra y palabra clave).
       threeBlank(f) {
         if (!f.subj || f.subj.proper || !f.numbers.length) return null;
         const w = keyword(f), n = f.numbers[0];
         if (!w || normalize(w) === normalize(n)) return null;
-        const marks = [[f.subj.noun, [...new Set([f.subj.noun, f.subj.npText])]], [n, [n]], [w, [w]]]
-          .map(([t, ans]) => ({ t, ans, i: f.text.indexOf(t) })).filter((m) => m.i >= 0).sort((a, b) => a.i - b.i);
+        const marks = [[f.subj.noun, [...new Set([f.subj.noun, f.subj.npText])], subjHint(f)], [n, [n], "cifra"], [w, [w], "palabra clave"]]
+          .map(([t, ans, hint]) => ({ t, ans, hint, i: f.text.indexOf(t) })).filter((m) => m.i >= 0).sort((a, b) => a.i - b.i);
         if (marks.length < 3 || marks[1].i < marks[0].i + marks[0].t.length || marks[2].i < marks[1].i + marks[1].t.length) return null;
         let prompt = "", at = 0;
         for (const m of marks) { prompt += f.text.slice(at, m.i) + BLANK; at = m.i + m.t.length; }
         prompt += f.text.slice(at);
-        return { ...base(f, "fill_blank"), prompt: lead(f) + prompt, answers: marks.map((m) => m.ans), explanation: `Respuestas: ${marks.map((m) => `«${m.t}»`).join(", ")}.\n${cite(f)}` };
+        return { ...base(f, "fill_blank"), prompt: lead(f) + prompt, answers: marks.map((m) => m.ans), hints: marks.map((m) => m.hint), explanation: `Respuestas: ${marks.map((m) => `«${m.t}»`).join(", ")}.\n${cite(f)}` };
       },
     },
 
@@ -1286,7 +1311,8 @@ function generateLocal(files, cfg, history = {}) {
         }
         if (!f.subj) return null;
         const s = f.subj, np = npLower(s);
-        const prompt = s.def ? `¿Qué ${s.copula} ${np}?` : s.proper && !s.det && !s.prefix ? `¿Qué hizo ${np} y por qué es relevante?` : contract(`¿Qué caracteriza a ${np}${prefixPhrase(s)}?`);
+        const src = sourceOf(s);
+        const prompt = s.def ? `¿Qué ${s.copula} ${np}?` : src ? `¿Qué afirma ${src} sobre ${np}?` : s.proper && !s.det && !s.prefix ? `¿Qué hizo ${np} y por qué es relevante?` : contract(`¿Qué caracteriza a ${np}${prefixPhrase(s)}?`);
         const kp = keyIdeas(card(f), 4, s.noun);
         return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
       },
@@ -1294,6 +1320,7 @@ function generateLocal(files, cfg, history = {}) {
         if (!f.subj) return this.define(f);
         const s = f.subj, np = npLower(s);
         const prompt = s.def ? `Explica con tus palabras qué ${s.copula} ${np} y qué características ${s.plural ? "tienen" : "tiene"}.`
+          : sourceOf(s) ? `Explica qué afirma ${sourceOf(s)} sobre ${np} y qué datos concretos aporta.`
           : `Explica qué se sabe de ${np}${prefixPhrase(s)} y menciona los datos concretos que aporta el apunte.`;
         const kp = keyIdeas(card(f), 4, s.noun);
         return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
@@ -1619,7 +1646,7 @@ const ICONS = {
   moon: "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z", auto: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18",
   pencil: "M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4", logout: "M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11",
   spark: "M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6z", arrow: "M5 12h14M13 6l6 6-6 6",
-  refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7", file: "M6 3h8l4 4v14H6zM14 3v4h4", cpu: "M7 7h10v10H7zM9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4",
+  text: "M4 5h16M4 10h16M4 15h10M4 20h7", refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7", file: "M6 3h8l4 4v14H6zM14 3v4h4", cpu: "M7 7h10v10H7zM9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4",
   user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
   eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", list: "M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01",
   target: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 12h.01", bolt: "M13 3L5 14h6l-1 7 8-11h-6z",
@@ -2142,6 +2169,58 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, claudeDiag, api, setA
   </section>`;
 }
 
+// Pegar texto directamente: se añade como un documento .txt más (sin extracción ni OCR, se analiza al instante).
+// El área de texto no es controlada por React para que pegar textos enormes no congele la página.
+function PasteText({ onAdd, pastedCount }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [hasText, setHasText] = useState(false);
+  const area = useRef(null), counter = useRef(null), raf = useRef(0);
+  const recount = () => {
+    cancelAnimationFrame(raf.current);
+    raf.current = requestAnimationFrame(() => {
+      const n = area.current?.value.length || 0;
+      if (counter.current) counter.current.textContent = `${n.toLocaleString("es")} caracteres`;
+      setHasText(n > 0);
+    });
+  };
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  const add = () => {
+    const text = (area.current?.value || "").replace(/\r\n?/g, "\n").trim();
+    if (!text) return;
+    const first = (text.split("\n").find((l) => l.trim()) || "").trim();
+    const name = (title.trim() || (first.length <= 80 ? first : "") || `Texto pegado ${pastedCount + 1}`)
+      .replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || `Texto pegado ${pastedCount + 1}`;
+    onAdd(new File([text], name + ".txt", { type: "text/plain" }));
+    area.current.value = ""; setTitle(""); recount(); setOpen(false);
+  };
+  const recommend = html`<span className="pill tone-butter !text-[11px]">★ Recomendado</span>`;
+  const why = html`<span className="text-xs" style=${{ color: "rgb(var(--muted))" }}>(si usas el modo demo sin IA, ya que el texto pegado aquí será más simple y requiere menos procesamiento)</span>`;
+  if (!open) return html`<button className="paste-toggle" onClick=${() => { setOpen(true); setTimeout(() => area.current?.focus(), 30); }}>
+    <${IconTile} name="text" tone="butter" size=${18} className="!w-10 !h-10" />
+    <span className="min-w-0 flex flex-col items-start gap-0.5 text-left">
+      <span className="flex flex-wrap items-center gap-2"><b>Añadir texto</b>${recommend}</span>
+      <span className="text-sm" style=${{ color: "rgb(var(--muted))" }}>Pega tus apuntes, resúmenes o capítulos completos, aunque sean muy largos.</span>
+      ${why}
+    </span>
+    <${Icon} name="plus" />
+  </button>`;
+  return html`<section className="paste-box flex flex-col gap-3" aria-label="Añadir texto">
+    <div className="flex flex-wrap items-center gap-2"><${IconTile} name="text" tone="butter" size=${16} className="!w-8 !h-8" /><b>Añadir texto</b>${recommend}</div>
+    ${why}
+    <input className="field" placeholder="Título (opcional)" value=${title} maxLength="80" onInput=${(e) => setTitle(e.target.value)} aria-label="Título del texto" />
+    <textarea ref=${area} className="field min-h-[220px] max-h-[60vh] resize-y leading-relaxed" spellCheck="false" onInput=${recount}
+      placeholder=${"Pega aquí tu texto. Puede ser tan largo como quieras.\nConserva los títulos de cada apartado (una línea corta sin punto final) para que cada pregunta muestre su temática."} aria-label="Texto para estudiar"></textarea>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <span ref=${counter} className="mono text-sm" style=${{ color: "rgb(var(--muted))" }}>0 caracteres</span>
+      <span className="flex gap-2">
+        <button className="btn btn-ghost !py-2" onClick=${() => { if (area.current) area.current.value = ""; setTitle(""); recount(); setOpen(false); }}>Cancelar</button>
+        <button className="btn btn-primary !py-2" disabled=${!hasText} onClick=${add}><${Icon} name="plus" size=${16} /> Añadir</button>
+      </span>
+    </div>
+  </section>`;
+}
+
 function MaterialStep({ session, modePanel, onFiles, onSample, onRemove, onToggle, onNext }) {
   const input = useRef(null), folder = useRef(null);
   const [over, setOver] = useState(false);
@@ -2169,6 +2248,8 @@ function MaterialStep({ session, modePanel, onFiles, onSample, onRemove, onToggl
         <input ref=${input} type="file" multiple accept=${ACCEPT} hidden onChange=${(e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) onFiles(fs); }} />
         <input ref=${folder} type="file" multiple webkitdirectory="" hidden onChange=${(e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) onFiles(fs); }} />
       </div>
+
+      <${PasteText} pastedCount=${files.filter((f) => /^Texto pegado \d+\.txt$/.test(f.name)).length} onAdd=${(f) => onFiles([f])} />
 
       ${files.length > 0 && html`<div className="flex flex-col gap-2">
         <div className="flex justify-between text-sm font-bold"><span>${files.length} archivo(s) · ${ready.length} listo(s)</span><span className="mono" style=${{ color: "rgb(var(--muted))" }}>${chars.toLocaleString("es")} caracteres</span></div>
@@ -2359,7 +2440,7 @@ function QuizStep({ quiz, aiOk, onChoice, onSubmitText, onSelfEval, onAIValidate
       </div>
 
       ${q.type === "fill_blank"
-        ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium whitespace-pre-line">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${"hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1)}
+        ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium whitespace-pre-line">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${q.hints?.[i] || "hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1) + (q.hints?.[i] ? ": " + q.hints[i] : "")}
             onInput=${(e) => { const v = [...values]; v[i] = e.target.value; setValues(v); }} onKeyDown=${(e) => { if (e.key === "Enter" && !a) { e.preventDefault(); submitText(); } }} />`}</span>`)}</p>`
         : html`<p className="text-lg md:text-xl leading-relaxed font-medium whitespace-pre-line">${q.prompt}</p>`}
 
