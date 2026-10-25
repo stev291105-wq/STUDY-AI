@@ -12,7 +12,10 @@ const ICONS = {
   pencil: "M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4", logout: "M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11",
   spark: "M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6z", arrow: "M5 12h14M13 6l6 6-6 6",
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7", file: "M6 3h8l4 4v14H6zM14 3v4h4", cpu: "M7 7h10v10H7zM9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4",
-  user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0", crown: "M3 8l4 4 5-7 5 7 4-4-2 11H5z", folder: "M3 6h6l2 2h10v11H3z",
+  user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
+  eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", list: "M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01",
+  target: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 12h.01", bolt: "M13 3L5 14h6l-1 7 8-11h-6z",
+  chart: "M4 20V11M10 20V5M16 20v-6M3 20h18", clock: "M12 7v5l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z", crown: "M3 8l4 4 5-7 5 7 4-4-2 11H5z", folder: "M3 6h6l2 2h10v11H3z",
 };
 const Icon = ({ name, size = 18, stroke = 2 }) => html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=${stroke} stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d=${ICONS[name]} /></svg>`;
 const Spinner = () => html`<span className="spin" aria-hidden="true"></span>`;
@@ -27,77 +30,143 @@ function Brand({ small }) {
 }
 
 // ================================================================ acceso
-const USE_MODES = [
-  ["With Gemini · recomendado", "Entras con tu cuenta de Google y conectas tu key gratuita de Gemini", "sky"],
-  ["Cuenta de Claude · recomendado", "Inicias sesión en Claude y usa tu propia cuenta, sin API key", "lav"],
-  ["Demo local", "Sin IA: todo ocurre en tu navegador", "butter"],
-  ["Tu API key", "Gemini, Llama (Groq) o Grok (xAI)", "peach"],
+// Pantalla de bienvenida: explica la página en lenguaje sencillo y pide solo un nombre o apodo.
+// Los modos de estudio (Gemini, Claude, demo, API key) se eligen después, en la pantalla de trabajo.
+const FEATURES = [
+  ["upload", "sky", "Sube lo que tengas", "PDF, Word, PowerPoint, Google Docs, Canva y fotos de tus cuadernos. Sin límite de archivos: puedes arrastrar carpetas completas."],
+  ["eye", "mint", "Lee hasta tu letra", "Saca el texto de documentos, imágenes y fotos de la pizarra. Con IA entiende también los apuntes escritos a mano."],
+  ["list", "lav", "Cuatro tipos de pregunta", "Selección múltiple, verdadero o falso, completar y pregunta abierta. Combina hasta tres en un mismo test."],
+  ["target", "peach", "Tú eliges el nivel", "Fácil, Medio, Difícil o Jacqueline, el más exigente. También decides cuántas preguntas quieres."],
+  ["bolt", "butter", "Corrección al momento", "En selección y verdadero o falso sabes al instante si acertaste. En completar y abiertas ves la respuesta del documento y te autoevalúas, o la IA te corrige."],
+  ["chart", "rose", "Resultados claros", "Nota, porcentaje, aciertos por tipo de pregunta y repaso completo. Repite el mismo test o pide preguntas nuevas."],
+  ["clock", "sky", "Historial como chats", "Cada sesión de estudio queda guardada en la barra lateral para retomarla cuando quieras."],
+  ["shield", "mint", "Sin servidor propio", "Tus archivos se leen en tu navegador y tus keys solo se guardan ahí. Con modo claro y oscuro."],
 ];
+const STUDY_MODES = [
+  ["spark", "sky", "With Gemini", true, "Conecta gratis tu cuenta de Google. Lee imágenes y letra a mano, redacta las preguntas y corrige tus respuestas."],
+  ["user", "lav", "Cuenta de Claude", true, "Abre StudyMaster dentro de claude.ai con tu propia cuenta, sin API key. Tu historial queda en la nube."],
+  ["file", "butter", "Demo local", false, "Sin IA y sin cuenta: todo ocurre en tu navegador. Funciona mejor con Word, PDF o archivos de texto."],
+  ["cpu", "peach", "Tu API key", false, "¿Ya tienes una key? Úsala con Gemini, Llama (vía Groq) o Grok (xAI)."],
+];
+const HOW = [["Sube tus apuntes", "Archivos, carpetas o fotos."], ["Configura tu test", "Tipos de pregunta, nivel y cantidad."], ["Responde y repasa", "Corrección, nota y repaso completo."]];
+
+const IconTile = ({ name, tone, size = 20, className = "" }) => html`<span className=${"icon-tile tone-" + tone + " " + className}><${Icon} name=${name} size=${size} /></span>`;
+
+// Vista previa ilustrativa de una pregunta (decorativa, solo en pantallas anchas).
+const HeroPreview = () => html`<div className="hero-preview hidden 2xl:block" aria-hidden="true">
+  <div className="card q-card p-5 flex flex-col gap-3">
+    <div className="flex items-center gap-2"><span className="pill tone-lav">Selección múltiple</span><span className="ml-auto eyebrow">3 / 10</span></div>
+    <div className="flex items-center gap-2"><span className="eyebrow">Temática</span><b style=${{ fontFamily: "var(--font-display)" }}>La célula</b></div>
+    <p className="font-bold leading-snug" style=${{ fontFamily: "var(--font-display)" }}>¿A qué orgánulo corresponde esta afirmación? «____ produce la mayor parte del ATP de la célula.»</p>
+    ${[["A", "El núcleo", ""], ["B", "La mitocondria", "is-correct"], ["C", "El ribosoma", ""]].map(([k, t, c]) => html`<div key=${k} className=${"option !text-[15px] !py-2.5 " + c}><span className="key">${k}</span>${t}</div>`)}
+    <p className="rounded-xl p-2.5 text-sm verdict-ok"><b>¡Correcto!</b> Según tus apuntes, página 2.</p>
+  </div>
+  <div className="hero-badge flat tone-butter"><span className="mono text-2xl font-bold">92%</span><span className="text-xs font-bold">Dominio total</span></div>
+</div>`;
 
 function LoginScreen({ caps, onChoose, notice }) {
   const [nick, setNick] = useState(pref.get("smai:nick", ""));
   const accountReady = !!(caps.db && caps.uid);
   const who = caps.me?.name || caps.me?.email || "";
+  const checking = IN_CLAUDE && !caps.ready;
   const muted = { color: "rgb(var(--muted))" };
-  return html`<div className="min-h-full grid place-items-center shell">
-    <div className="w-full max-w-4xl grid md:grid-cols-[1.05fr_1fr] gap-4">
-      <section className="card p-7 md:p-9 relative overflow-hidden flex flex-col gap-6">
+  // Dentro de Claude se entra con la cuenta del visitante si está disponible (historial en la nube); si no, como invitado.
+  const enter = (e) => {
+    e.preventDefault();
+    if (checking) return;
+    pref.set("smai:nick", nick.trim());
+    onChoose(IN_CLAUDE && accountReady ? { mode: "account", nick: nick.trim() } : { mode: "guest", nick: nick.trim() });
+  };
+  const pad = "px-4 sm:px-8 lg:px-12 xl:px-16";
+  return html`<div className="landing grid lg:grid-cols-[minmax(0,1fr)_clamp(380px,34vw,520px)] min-h-full">
+    <section className=${"lg:col-start-1 lg:row-start-1 flex flex-col gap-10 pt-6 pb-10 lg:pt-8 " + pad}>
+      <div className="flex items-center justify-between gap-3">
         <${Brand} />
-        <div className="flex flex-col gap-3">
-          <h1 className="text-[2.1rem] md:text-[2.6rem] leading-[1.05] font-extrabold">Convierte tus apuntes en exámenes que de verdad enseñan.</h1>
-          <p className="text-[15px]" style=${{ ...muted, maxWidth: "46ch" }}>Sube PDF, Word, PowerPoint, exportaciones de Google Docs o Canva y fotos de cuadernos. StudyMaster lee el texto, las imágenes y la letra a mano, y te pregunta como lo haría tu profesor más exigente.</p>
-        </div>
+        <span className="pill tone-mint hidden sm:inline-flex">Gratis · sin instalar nada</span>
+      </div>
+      <div className="grid 2xl:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] gap-10 items-center">
+      <div className="flex flex-col gap-5 max-w-[46rem]">
+        <div className="eyebrow flex items-center gap-2"><span className="w-2 h-2 rounded-full" style=${{ background: "rgb(var(--accent))" }}></span>Tu espacio de estudio</div>
+        <h1 className="text-[2.4rem] sm:text-[3.2rem] xl:text-[3.9rem] leading-[1.02] font-extrabold">Convierte tus apuntes en <span className="marker">exámenes</span> que de verdad enseñan.</h1>
+        <p className="text-[17px] max-w-[40rem]" style=${muted}>Sube tus documentos o fotos de tus cuadernos y StudyMaster te prepara un test con preguntas sacadas de tu propio material, como lo haría tu profesor más exigente.</p>
         <div className="flex flex-wrap gap-2">
           ${MODE_KEYS.map((m) => html`<span key=${m} className=${"chip tone-" + MODES[m].tone}>${MODES[m].label}</span>`)}
           <span className="chip jq-badge" style=${{ border: 0 }}>♛ Nivel Jacqueline</span>
         </div>
-        <div className="mt-auto flex flex-col gap-2">
-          <div className="eyebrow">Cuatro formas de usarlo</div>
-          ${USE_MODES.map(([t, d, tone], i) => html`<div key=${t} className="flex items-center gap-3 rounded-xl p-2.5" style=${{ background: "rgb(var(--surface-2))" }}>
-            <span className=${"mono font-bold w-7 h-7 grid place-items-center rounded-md shrink-0 tone-" + tone}>${i + 1}</span>
-            <span className="min-w-0"><b>${t}</b><span className="block text-xs" style=${muted}>${d}</span></span>
-          </div>`)}
-        </div>
-      </section>
+      </div>
+      <${HeroPreview} />
+      </div>
+      <ol className="grid sm:grid-cols-3 gap-3" aria-label="Cómo funciona">
+        ${HOW.map(([t, d], i) => html`<li key=${t} className="how-step">
+          <span className="how-num mono">${i + 1}</span>
+          <span className="min-w-0"><b className="block leading-tight" style=${{ fontFamily: "var(--font-display)" }}>${t}</b><span className="text-sm" style=${muted}>${d}</span></span>
+        </li>`)}
+      </ol>
+    </section>
 
-      <section className="card p-7 md:p-9 flex flex-col gap-5">
-        <div>
-          <div className="eyebrow">Acceso</div>
-          <h2 className="text-2xl font-bold mt-1">¿Cómo quieres entrar?</h2>
-        </div>
-        ${notice && html`<p className="rounded-xl p-3 text-sm tone-peach">${notice}</p>`}
-        ${IN_CLAUDE
-          ? html`<button className="btn btn-primary w-full justify-between py-4" disabled=${!accountReady} onClick=${() => onChoose({ mode: "account" })}>
-              <span className="flex items-center gap-3 min-w-0">
-                ${caps.me?.avatarUrl && accountReady ? html`<img src=${caps.me.avatarUrl} alt="" className="w-8 h-8 rounded-full border-2" style=${{ borderColor: "rgb(var(--accent-ink))" }} />` : html`<${Icon} name="user" />`}
-                <span className="flex flex-col items-start min-w-0">
-                  <span>Continuar con mi cuenta de Claude</span>
-                  <span className="text-xs font-normal opacity-90 truncate max-w-[16rem]">${!caps.ready ? "Comprobando tu cuenta…" : accountReady ? who || "Cuenta verificada" : "Inicia sesión en claude.ai para usar tu cuenta"}</span>
-                </span>
-              </span>
-              <${Icon} name="arrow" />
-            </button>
-            <p className="text-sm -mt-2" style=${muted}>Usas tu propia cuenta de Claude (la de tu correo) para la IA, y tu historial se guarda en la nube.</p>`
-          : html`<button className="btn btn-primary w-full justify-between py-4" onClick=${() => { pref.set("smai:engine", "gemini"); onChoose({ mode: "guest", nick: nick.trim(), via: "gemini" }); }}>
-              <span className="flex items-center gap-3"><${Icon} name="spark" /><span className="flex flex-col items-start"><span>Entrar con Gemini <span className="pill tone-butter !text-[10px] ml-1">★ Recomendado</span></span><span className="text-xs font-normal opacity-90">Con tu cuenta de Google · gratis</span></span></span>
-              <${Icon} name="arrow" />
-            </button>
-            <p className="text-sm -mt-2" style=${muted}>Inicias sesión en Google AI Studio, creas tu key gratuita y la pegas: StudyMaster usará tu propio Gemini.</p>
-            <a className="btn btn-ghost w-full justify-between py-4" href=${LINKS.claudeApp} target="_blank" rel="noopener">
-              <span className="flex items-center gap-3"><${Icon} name="user" /><span className="flex flex-col items-start"><span>Entrar con mi cuenta de Claude <span className="pill tone-butter !text-[10px] ml-1">★ Recomendado</span></span><span className="text-xs font-normal opacity-90">Se abre en claude.ai · tu propia cuenta, sin API key</span></span></span>
-              <${Icon} name="arrow" />
-            </a>
-            <p className="text-sm -mt-2" style=${muted}>StudyMaster se abre dentro de Claude: la IA funciona con tu propia cuenta de Claude y tu historial queda guardado en la nube.</p>`}
-
-        <div className="flex items-center gap-3 text-xs eyebrow"><span className="flex-1 h-px" style=${{ background: "rgb(var(--line-soft))" }}></span>o<span className="flex-1 h-px" style=${{ background: "rgb(var(--line-soft))" }}></span></div>
-
-        <form className="flex flex-col gap-3" onSubmit=${(e) => { e.preventDefault(); pref.set("smai:nick", nick.trim()); onChoose({ mode: "guest", nick: nick.trim() }); }}>
-          <label htmlFor="nick" className="text-sm font-bold">Nombre para mostrar <span className="font-normal" style=${muted}>(opcional)</span></label>
-          <input id="nick" className="field" placeholder="Ej. Ana · 2º de Bachillerato" value=${nick} maxLength="40" onInput=${(e) => setNick(e.target.value)} />
-          <button type="submit" className="btn btn-ghost w-full py-3"><${Icon} name="user" /> ${IN_CLAUDE ? "Entrar como invitado" : "Usar en este navegador"}</button>
-          <p className="text-sm" style=${muted}>${IN_CLAUDE ? "Como invitado, el historial se guarda solo en este navegador." : "Entra sin IA (modo demo) o con tu propia API key de Gemini, Llama o Grok. El historial se guarda en este navegador."}</p>
+    <aside className="landing-access lg:col-start-2 lg:row-start-1 lg:row-span-2">
+      <div className="lg:sticky lg:top-0 lg:h-dvh flex flex-col justify-center gap-5 px-4 sm:px-8 py-8 lg:px-10">
+        <form className="access-card flex flex-col gap-4" onSubmit=${enter}>
+          <div>
+            <div className="eyebrow">Acceso</div>
+            <h2 className="text-[1.75rem] leading-tight font-extrabold mt-1">¡Hola! ¿Cómo te llamas?</h2>
+            <p className="text-sm mt-1" style=${muted}>Escribe tu nombre o apodo para personalizar tu espacio de estudio.</p>
+          </div>
+          ${notice && html`<p className="rounded-xl p-3 text-sm tone-peach">${notice}</p>`}
+          <label htmlFor="nick" className="text-sm font-bold -mb-2">Nombre o apodo <span className="font-normal" style=${muted}>(opcional)</span></label>
+          <input id="nick" className="field !py-3 !text-base" placeholder="Ej. Ana" autoComplete="nickname" value=${nick} maxLength="40" onInput=${(e) => setNick(e.target.value)} />
+          <button type="submit" className="btn btn-primary w-full !py-4 !text-lg" disabled=${checking}>
+            ${checking ? html`<${Spinner} /> Comprobando tu cuenta…` : html`Acceder <${Icon} name="arrow" />`}
+          </button>
+          ${IN_CLAUDE
+            ? html`<p className="flex items-center gap-2 text-sm rounded-xl p-2.5" style=${{ background: "rgb(var(--surface-2))" }}>
+                ${accountReady && caps.me?.avatarUrl ? html`<img src=${caps.me.avatarUrl} alt="" className="w-7 h-7 rounded-full" />` : html`<${IconTile} name="user" tone="lav" size=${15} className="!w-7 !h-7" />`}
+                <span className="min-w-0">${checking ? "Comprobando tu cuenta de Claude…" : accountReady ? html`Tu historial se guardará en tu cuenta de Claude${who ? html` · <b>${who}</b>` : ""}.` : "Tu historial se guardará en este navegador. Inicia sesión en claude.ai para guardarlo en la nube."}</span>
+              </p>`
+            : html`<p className="text-sm" style=${muted}>Después de acceder eliges cómo estudiar: <b>With Gemini</b>, tu <b>cuenta de Claude</b>, el <b>demo sin IA</b> o tu propia <b>API key</b>.</p>`}
         </form>
+        <ul className="access-perks">
+          <li><${Icon} name="check" size=${16} stroke=${3} /> Gratis y sin instalar nada</li>
+          <li><${Icon} name="check" size=${16} stroke=${3} /> Funciona en el ordenador y en el móvil</li>
+          <li><${Icon} name="check" size=${16} stroke=${3} /> Tus sesiones quedan guardadas como chats</li>
+        </ul>
+      </div>
+    </aside>
+
+    <div className=${"lg:col-start-1 lg:row-start-2 flex flex-col gap-12 pt-10 pb-12 lg:pt-2 " + pad}>
+      <section className="flex flex-col gap-4" aria-labelledby="feat-title">
+        <div><div className="eyebrow">Funciones</div><h2 id="feat-title" className="text-2xl sm:text-[1.9rem] font-extrabold">Todo lo que puedes hacer</h2></div>
+        <div className="grid sm:grid-cols-2 2xl:grid-cols-4 gap-3">
+          ${FEATURES.map(([icon, tone, t, d]) => html`<article key=${t} className="feature card p-4 flex gap-3">
+            <${IconTile} name=${icon} tone=${tone} />
+            <div className="min-w-0"><h3 className="font-bold leading-snug">${t}</h3><p className="text-sm mt-0.5" style=${muted}>${d}</p></div>
+          </article>`)}
+        </div>
       </section>
+
+      <section className="flex flex-col gap-4" aria-labelledby="modes-title">
+        <div><div className="eyebrow">Modos de estudio</div><h2 id="modes-title" className="text-2xl sm:text-[1.9rem] font-extrabold">Cuatro formas de estudiar</h2>
+          <p className="text-sm mt-1" style=${muted}>Los eliges en la siguiente pantalla, después de acceder, y puedes cambiar de modo cuando quieras.</p></div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          ${STUDY_MODES.map(([icon, tone, t, rec, d], i) => html`<article key=${t} className=${"feature card p-4 flex gap-3 " + (rec ? "is-rec" : "")}>
+            <${IconTile} name=${icon} tone=${tone} />
+            <div className="min-w-0">
+              <h3 className="font-bold leading-snug flex flex-wrap items-center gap-x-2 gap-y-1"><span className="mono text-xs opacity-60">${i + 1}</span>${t}${rec && html`<span className="pill tone-butter !text-[11px] !py-0.5">★ Recomendado</span>`}</h3>
+              <p className="text-sm mt-0.5" style=${muted}>${d}</p>
+            </div>
+          </article>`)}
+        </div>
+      </section>
+
+      <section className="jq-card jq-banner rounded-[22px] p-5 sm:p-6 relative flex flex-col sm:flex-row sm:items-center gap-4">
+        <span className="jq-title text-4xl leading-none relative" aria-hidden="true">♛</span>
+        <div className="relative min-w-0">
+          <h2 className="jq-title text-xl font-extrabold">Nivel Jacqueline</h2>
+          <p className="jq-hint text-sm">Preguntas de máxima dificultad que cruzan varios documentos y exigen dominio absoluto de cada detalle. Si lo superas, ganas la insignia de Maestro.</p>
+        </div>
+      </section>
+
+      <p className="text-xs" style=${muted}>StudyMaster AI · hecho para estudiar mejor con tus propios apuntes.</p>
     </div>
   </div>`;
 }
@@ -124,7 +193,7 @@ function Sidebar({ auth, caps, storeKind, engineLabel, sessions, currentId, busy
       ${!sessions.length && html`<div className="m-2 rounded-xl p-4 text-sm tone-sky">Tus sesiones aparecerán aquí, como un historial de chats. Empieza subiendo material.</div>`}
       ${groups.map((g) => html`<div key=${g.name} className="mb-3">
         <div className="eyebrow px-2 mb-1">${g.name}</div>
-        ${g.items.map((s) => html`<div key=${s.id} className=${"group relative rounded-xl " + (s.id === currentId ? "tone-lav" : "")}>
+        ${g.items.map((s) => html`<div key=${s.id} className=${"group side-session rounded-xl " + (s.id === currentId ? "tone-lav is-current" : "")}>
           ${confirmId === s.id ? html`<div className="flex items-center gap-2 p-2 text-sm">
               <span className="flex-1 font-bold">¿Eliminar?</span>
               <button className="btn !px-2 !py-1 text-xs" style=${{ background: "rgb(var(--bad))", color: "#fff" }} onClick=${() => { setConfirmId(null); onDelete(s.id); }}>Eliminar</button>
@@ -169,7 +238,7 @@ function Header({ session, step, enabled, onStep, onRename, onMenu, modeLabel, m
     <div className="flex items-center gap-3">
       <button className="lg:hidden btn btn-ghost !p-2" onClick=${onMenu} aria-label="Abrir historial"><${Icon} name="menu" /></button>
       ${editing ? html`<input className="field !text-xl !font-bold max-w-xl" autoFocus value=${val} onInput=${(e) => setVal(e.target.value)} onBlur=${save} onKeyDown=${(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") { setVal(session.title); setEditing(false); } }} aria-label="Nombre de la sesión" />`
-      : html`<h1 className="text-[1.6rem] md:text-[1.9rem] font-extrabold leading-tight truncate min-w-0">${session.title}</h1>
+      : html`<div className="min-w-0"><div className="eyebrow">Sesión de estudio</div><h1 className="text-[1.6rem] md:text-[2rem] font-extrabold leading-tight truncate">${session.title}</h1></div>
         <button className="p-1.5 rounded-md opacity-60 hover:opacity-100" onClick=${() => setEditing(true)} aria-label="Renombrar sesión"><${Icon} name="pencil" size=${16} /></button>`}
     </div>
     <div className="flex flex-wrap items-center gap-2">
@@ -177,9 +246,8 @@ function Header({ session, step, enabled, onStep, onRename, onMenu, modeLabel, m
       ${STEPS.map(([key, label], i) => {
         const active = step === key, ok = enabled[key];
         return html`<li key=${key}><button disabled=${!ok} onClick=${() => onStep(key)} aria-current=${active ? "step" : undefined}
-          className=${"flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-bold border-2 transition " + (active ? "tone-butter" : "")}
-          style=${{ borderColor: active ? "rgb(var(--line))" : "rgb(var(--line-soft))", background: active ? undefined : "rgb(var(--surface))", opacity: ok ? 1 : 0.45, boxShadow: active ? "3px 3px 0 rgb(var(--line))" : "none" }}>
-          <span className="mono text-xs">${i + 1}</span>${label}</button></li>`;
+          className=${"step-tab " + (active ? "tone-butter" : "")}>
+          <span className="step-num">${i + 1}</span>${label}</button></li>`;
       })}
     </ol>
     <span className=${"pill border-2 ml-auto tone-" + ({ gemini: "sky", claude: "lav", api: "peach", demo: "butter" }[modeKind] || "butter")} style=${{ borderColor: "rgb(var(--line))" }} title="Modo activo" aria-label=${"Modo activo: " + modeLabel}>
@@ -317,7 +385,7 @@ function GeminiPanel({ gem, setGem }) {
       : html`<ol className="flex flex-col gap-4">
           <${GuideStep} n="1">
             <b className="text-sm">Inicia sesión con tu cuenta de Google</b>
-            <a className="btn btn-primary !py-2 text-sm self-start" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Iniciar sesión en Google AI Studio ↗</a>
+            <a className="btn btn-primary !py-2 text-sm self-start !whitespace-normal text-center" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Iniciar sesión en Google AI Studio ↗</a>
           <//>
           <${GuideStep} n="2">
             <b className="text-sm">Pulsa «Create API key» (es gratis) y cópiala</b>
@@ -340,7 +408,7 @@ function GeminiPanel({ gem, setGem }) {
 
 function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady, gem, setGem, geminiReady }) {
   return html`<section className="card p-5 flex flex-col gap-3">
-    <div><div className="eyebrow">Modo de uso</div><h3 className="text-lg font-bold">¿Quién lee y pregunta?</h3></div>
+    <div className="section-head"><${IconTile} name="spark" tone="lav" size=${18} className="!w-9 !h-9" /><div><div className="eyebrow">Modo de uso</div><h3 className="text-lg font-bold leading-tight">¿Quién lee y pregunta?</h3></div></div>
     <${ModeCard} id="gemini" num="1" active=${mode === "gemini"} available=${!IN_CLAUDE} onPick=${onMode}
       title=${html`With Gemini <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
       desc=${IN_CLAUDE ? "Disponible en la versión web: este visor de Claude bloquea conexiones a otros servicios." : "Entra con tu cuenta de Google y usa Gemini gratis: lee imágenes y letra a mano, redacta preguntas y valida tus respuestas."}
@@ -390,7 +458,7 @@ function MaterialStep({ session, modePanel, onFiles, onSample, onRemove, onToggl
   return html`<div className="grid xl:grid-cols-[1.35fr_1fr] gap-4 items-start">
     <section className="card p-5 md:p-6 flex flex-col gap-4 min-w-0">
       <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div><div className="eyebrow">Paso 1</div><h2 className="text-xl font-bold">Sube tu material</h2></div>
+        <div className="section-head"><${IconTile} name="upload" tone="sky" size=${18} className="!w-9 !h-9" /><div><div className="eyebrow">Paso 1</div><h2 className="text-xl font-bold leading-tight">Sube tu material</h2></div></div>
         <button className="btn btn-ghost !py-2 text-sm" onClick=${onSample}><${Icon} name="file" size=${16} /> Probar con un ejemplo</button>
       </div>
       <div className=${"dropzone p-8 flex flex-col items-center text-center gap-2 " + (over ? "is-over" : "")}
@@ -459,7 +527,7 @@ function ConfigStep({ session, engineLabel, generating, onGenerate }) {
   const valid = modes.length > 0 && count >= 1 && count <= 100 && docs.length > 0;
   return html`<div className="grid xl:grid-cols-[1.35fr_1fr] gap-4 items-start">
     <section className="card p-5 md:p-6 flex flex-col gap-6 min-w-0">
-      <div><div className="eyebrow">Paso 2</div><h2 className="text-xl font-bold">Configura tu test</h2></div>
+      <div className="section-head"><${IconTile} name="target" tone="peach" size=${18} className="!w-9 !h-9" /><div><div className="eyebrow">Paso 2</div><h2 className="text-xl font-bold leading-tight">Configura tu test</h2></div></div>
 
       <fieldset className="flex flex-col gap-3">
         <legend className="flex items-center gap-2 font-bold mb-3">Modalidades de preguntas
