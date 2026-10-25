@@ -183,6 +183,7 @@
   .hero-preview { position: relative; transform: rotate(1.5deg); padding: 26px 12px 12px 0; }
   .hero-preview .q-card { border: 2px solid rgb(var(--line)); box-shadow: 8px 8px 0 rgb(var(--line)); }
   .hero-badge { position: absolute; right: -6px; top: -26px; transform: rotate(6deg); border-radius: 16px; padding: 8px 14px; display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+  .exp-badge { background: rgb(var(--bad)); color: #fff; }
   .jq-banner { border: 2px solid rgb(var(--jq-gold)); box-shadow: 5px 5px 0 rgb(var(--jq-gold)), 0 0 34px rgb(var(--jq-neon) / .35); }
 
   /* Pantalla de trabajo */

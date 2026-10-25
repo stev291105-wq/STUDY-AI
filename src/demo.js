@@ -117,6 +117,8 @@ function parseSubject(sent, midCaps) {
     rest = rest.slice(m[0].length);
   }
   if (!/^\p{Ll}/u.test(rest) || rest.split(/\s+/).length < 3) return null;
+  // Si tras el concepto sigue una preposición («La evaluación por etapas organiza…»), el concepto está incompleto: no se usa.
+  if (/^(por|con|en|sin|para|de|del|a|al|entre|sobre|hacia|desde|hasta|según|mediante|durante|tras|bajo|ante)\s/i.test(rest)) return null;
   const noun = np.join(" ");
   const npText = (det ? det + " " : "") + noun;
   return {
@@ -159,8 +161,34 @@ function parseTerm(line) {
   const words = desc.replace(/\([^)]*\)/g, " ").split(/[\s,;]+/).filter((w) => /\p{L}/u.test(w));
   const content = words.filter((w) => !/^(y|e|de|del|la|las|los|el|van|von|da|di|du|le)$/i.test(w));
   const refs = content.length > 0 && content.filter((w) => isCap(w)).length / content.length >= 0.7;
-  return { label, desc, refs, generic: GEN_LABEL.test(label) };
+  // «Rocío Fernández Ballesteros (española)» → nombre «Rocío Fernández Ballesteros», y se reconoce como persona.
+  const name = label.replace(/\s*\([^)]*\)/g, "").trim() || label;
+  const nw = name.split(/\s+/);
+  const person = nw.length >= 2 && nw.every((w) => isCap(w) || /^(de|del|la|las|los|y|van|von|da|di)$/i.test(w)) && nw.filter(isCap).length >= 2;
+  return { label, name, desc, refs, person, generic: GEN_LABEL.test(label) };
 }
+// Enunciado de una entrada de esquema: «Los autores de X son: …», «X se asocia con: …», «X se describe como: …».
+const termSay = (t, desc, blank = false) => {
+  const L = blank ? BLANK : `«${t.name}»`;
+  return t.refs ? `Los autores de ${L} son: ${desc}.` : t.person ? `${L} se asocia con: ${desc}.` : `${L} se describe como: ${desc}.`;
+};
+// Limpieza del enunciado: sin referencias a documento, sección, tema o página («Según el material, …», «(pág. 12)»).
+function cleanPrompt(p) {
+  let t = String(p || "").trim();
+  const DOCW = "material|texto|documento|apunte|apuntes|libro|manual|lectura|resumen|archivo|pdf|presentaci[oó]n|diapositiva|secci[oó]n|cap[ií]tulo|apartado|tema|unidad|p[áa]gina";
+  for (let i = 0; i < 3; i++) {
+    const before = t;
+    t = t.replace(new RegExp(`^(?:seg[uú]n|de acuerdo con|conforme a|tal como (?:indica|se[ñn]ala|dice))\\s+(?:el|la|los|las|lo que (?:dice|indica) (?:el|la))\\s+(?:${DOCW})\\b[^,:?¿]{0,140}[,:]\\s*`, "i"), "")
+      .replace(new RegExp(`^en\\s+(?:el|la|los|las)\\s+(?:${DOCW})\\b[^,:?¿]{0,140}[,:]\\s*`, "i"), "")
+      .replace(/^(?:p[áa]gina|p[áa]g\.?|diapositiva|fragmento)\s*\d+(?:\s*\/\s*\d+)?\s*[:,.\-–]\s*/i, "")
+      .replace(/^sobre\s+«[^»]{1,120}»\s*[:,]\s*/i, "").replace(/^tema\s+«[^»]{1,120}»\s*[:,.-]\s*/i, "");
+    if (t === before) break;
+  }
+  t = t.replace(/\s*\((?:p[áa]g(?:ina)?s?|pp?)\.?\s*[\d\s,\-–y]+\)/gi, "")
+    .replace(new RegExp(`,?\\s+(?:seg[uú]n|de acuerdo con)\\s+(?:el|la)\\s+(?:${DOCW})(?:\\s+de estudio)?(?=\\s*[?.!]|$)`, "gi"), "");
+  return t.replace(/^([¿¡«"]?)(\p{Ll})/u, (m, a, c) => a + c.toUpperCase());
+}
+
 // Nombres propios citados en una lista de autores: «Sternberg (1998), Fernández Ballesteros y Grigorenko» → [Sternberg, Fernández Ballesteros, Grigorenko].
 const refNames = (desc) => desc.replace(/\([^)]*\)/g, ",").split(/\s*(?:,|;|\by\b|\be\b)\s*/).map((x) => x.trim()).filter((x) => /^\p{Lu}/u.test(x));
 
@@ -214,7 +242,8 @@ function buildFacts(files) {
     const subj = parseSubject(s.text, midCaps);
     // Una oración sin sujeto reconocible ni verbo es un fragmento: no sirve para preguntar.
     if (!subj && !hasVerb(s.text)) return;
-    const anaphoric = ANAPHOR.test(s.text);
+    // También dependen de la anterior las que remiten a algo ya dicho («el símbolo de este periodo»).
+    const anaphoric = ANAPHOR.test(s.text) || /\b(este|esta|estos|estas|dicho|dicha|dichos|dichas|aquel|aquella)\s+\p{L}/iu.test(s.text);
     if (anaphoric && !ctx.before) return;
     // Cifras de la prosa; los años de las citas («Sternberg (1998)») y las páginas no son datos que estudiar.
     const prose = s.text.replace(/\([^)]*\)/g, " ").replace(/\b(?:p[áa]gs?|pp?)\.\s*\d+/gi, " ");
@@ -316,7 +345,7 @@ function generateLocal(files, cfg) {
   };
   // Otras entradas «Concepto: descripción» del mismo documento y de la misma clase (listas de autores con listas de autores).
   const termPeers = (f) => {
-    const list = terms.filter((x) => x.fi === f.fi && x.id !== f.id && !x.term.generic && x.term.refs === f.term.refs
+    const list = terms.filter((x) => x.fi === f.fi && x.id !== f.id && !x.term.generic && x.term.refs === f.term.refs && x.term.person === f.term.person
       && !overlaps(x.term.label, f.term.label) && normalize(x.term.desc) !== normalize(f.term.desc));
     return [...shuffle(list.filter((x) => x.topic === f.topic)), ...shuffle(list.filter((x) => x.topic !== f.topic))];
   };
@@ -336,16 +365,17 @@ function generateLocal(files, cfg) {
       if (f.term) {
         // «¿Con qué concepto relaciona el material a estos autores?» con los otros conceptos del mismo esquema.
         if (f.term.generic) return null;
-        const opts = optionsWith(f.term.label, termPeers(f).map((x) => x.term.label));
+        const opts = optionsWith(f.term.name, termPeers(f).map((x) => x.term.name));
         if (!opts) return null;
-        const prompt = f.term.refs ? `En el tema «${T}», ¿con qué concepto relaciona el material a estos autores?\n«${f.term.desc}»`
-          : `En el tema «${T}», ¿a qué concepto corresponde esta descripción del material?\n«${f.term.desc}»`;
-        return { ...base(f, "multiple_choice"), prompt, options: opts, answerIndex: opts.indexOf(ucFirst(f.term.label)), explanation: `La respuesta es «${f.term.label}».\n${cite(f)}` };
+        const prompt = f.term.refs ? `¿A qué concepto corresponden estos autores?\n«${f.term.desc}»`
+          : f.term.person ? `¿A quién se asocia lo siguiente?\n«${f.term.desc}»`
+          : `¿Qué concepto se describe así?\n«${f.term.desc}»`;
+        return { ...base(f, "multiple_choice"), prompt, options: opts, answerIndex: opts.indexOf(ucFirst(f.term.name)), explanation: `La respuesta es «${f.term.name}».\n${cite(f)}` };
       }
       // 1) Definición: «¿Qué es la mitocondria?» con definiciones reales de otros conceptos.
       if (f.subj?.def && (d === "easy" || d === "medium" || Math.random() < 0.4)) {
         const opts = optionsWith(f.subj.def, peers(f, { defs: true }).map((x) => x.subj.def));
-        if (opts) return { ...base(f, "multiple_choice"), prompt: `En el tema «${T}», ¿qué ${f.subj.copula} ${npLower(f.subj)} según el material?`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.def)) };
+        if (opts) return { ...base(f, "multiple_choice"), prompt: `¿Qué ${f.subj.copula} ${npLower(f.subj)}?`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.def)) };
       }
       // 2) Dato concreto (niveles altos): la cifra exacta.
       if (hard && f.numbers.length) {
@@ -353,7 +383,7 @@ function generateLocal(files, cfg) {
         const vars = numericVariants(n, f.numbers).slice(0, nOpts - 1);
         if (vars.length >= nOpts - 1) {
           const opts = shuffle([n, ...vars]);
-          return { ...base(f, "multiple_choice"), prompt: `${lead(f)}En el tema «${T}», ¿qué dato completa correctamente la afirmación?\n«${replaceOnce(f.text, n, BLANK)}»`, options: opts, answerIndex: opts.indexOf(n) };
+          return { ...base(f, "multiple_choice"), prompt: `${lead(f)}¿Qué dato completa correctamente esta afirmación?\n«${replaceOnce(f.text, n, BLANK)}»`, options: opts, answerIndex: opts.indexOf(n) };
         }
       }
       // 3) Concepto: «¿A qué concepto corresponde esta afirmación?» con conceptos del mismo documento y misma concordancia.
@@ -362,7 +392,7 @@ function generateLocal(files, cfg) {
         const opts = optionsWith(f.subj.npText, others.map((x) => x.subj.npText));
         if (opts) {
           const stem = f.subj.prefix ? `${f.subj.prefix}${BLANK} ${f.subj.pred}` : `${BLANK} ${f.subj.pred}`;
-          return { ...base(f, "multiple_choice"), prompt: `En el tema «${T}», ¿a qué concepto corresponde esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.npText)) };
+          return { ...base(f, "multiple_choice"), prompt: `¿A qué concepto se refiere esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.npText)) };
         }
       }
       return null;
@@ -374,9 +404,9 @@ function generateLocal(files, cfg) {
         // Emparejar cada concepto con su descripción; la falsa usa la descripción de otro concepto del mismo esquema.
         if (f.term.generic) return null;
         const pick = termPeers(f)[0];
-        const say = (desc) => `Sobre «${T}»: ¿verdadero o falso?\nSegún el material, a «${f.term.label}» le corresponde: ${desc}.`;
+        const say = (desc) => termSay(f.term, desc);
         if (!pick || Math.random() < 0.45) return { ...b, prompt: say(f.term.desc), answerBool: true, explanation: `Es verdadera.\n${cite(f)}` };
-        return { ...b, prompt: say(pick.term.desc), answerBool: false, explanation: `Es falsa. Eso corresponde a «${pick.term.label}». Para «${f.term.label}», el material indica: ${f.term.desc}.\n${cite(f)}` };
+        return { ...b, prompt: say(pick.term.desc), answerBool: false, explanation: `Es falsa. Eso corresponde a «${pick.term.name}». Lo correcto es: ${termSay(f.term, f.term.desc)}\n${cite(f)}` };
       }
       const falses = [];
       if (f.subj) {
@@ -394,23 +424,23 @@ function generateLocal(files, cfg) {
         falses.push({ text: f.text.replace(/\bno\s+/, ""), why: `El material dice justo lo contrario.` });
       const order = hard ? [...falses].reverse() : falses;
       const pickFalse = order.find((x) => !sentences.has(normalize(x.text)) && x.text !== f.text);
-      const ask = (text) => `${lead(f)}Sobre «${T}»: ¿verdadero o falso?\n«${text}»`;
+      const ask = (text) => `${lead(f)}${text}`;
       if (!pickFalse || Math.random() < 0.45) return f.subj || f.numbers.length ? { ...b, prompt: ask(f.text), answerBool: true, explanation: `Es verdadera: el material lo afirma así.\n${cite(f)}` } : null;
       return { ...b, prompt: ask(pickFalse.text), answerBool: false, explanation: `Es falsa. ${pickFalse.why}\n${cite(f)}` };
     },
 
     fill_blank(f) {
       const T = f.topic;
-      const head = `${lead(f)}Completa según el material (tema «${T}»):\n`;
+      const head = lead(f);
       if (f.term) {
         if (f.term.generic) return null;
         const names = f.term.refs ? refNames(f.term.desc) : [];
         // Jacqueline: el concepto y uno de sus autores.
         if (d === "jacqueline" && names.length > 1) {
           const who = names[0];
-          return { ...base(f, "fill_blank"), prompt: `${head}${BLANK}: ${replaceOnce(f.term.desc, who, BLANK)}.`, answers: [[f.term.label], [who]], explanation: `Respuestas: «${f.term.label}» y «${who}».\n${cite(f)}` };
+          return { ...base(f, "fill_blank"), prompt: head + termSay(f.term, replaceOnce(f.term.desc, who, BLANK), true), answers: [[f.term.name, f.term.label], [who]], explanation: `Respuestas: «${f.term.name}» y «${who}».\n${cite(f)}` };
         }
-        return { ...base(f, "fill_blank"), prompt: `${head}${BLANK}: ${f.term.desc}.`, answers: [[f.term.label]], explanation: `Respuesta: «${f.term.label}».\n${cite(f)}` };
+        return { ...base(f, "fill_blank"), prompt: head + termSay(f.term, f.term.desc, true), answers: [[...new Set([f.term.name, f.term.label])]], explanation: `Respuesta: «${f.term.name}».\n${cite(f)}` };
       }
       const numBlank = f.numbers.length && (hard || !f.subj);
       if (d === "jacqueline" && f.subj && !f.subj.proper && f.numbers.length) {
@@ -440,14 +470,16 @@ function generateLocal(files, cfg) {
           const pair = termPeers(f).find((x) => x.topic === T && usable(x, "open"));
           if (pair) {
             mark(pair, "open");
-            const prompt = t.refs ? `En el tema «${T}», ¿qué autores sitúa el material en «${t.label}» y cuáles en «${pair.term.label}»?`
-              : `En el tema «${T}», explica y diferencia «${t.label}» y «${pair.term.label}» según el material.`;
+            const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}» y cuáles a «${pair.term.name}»?`
+              : t.person ? `¿Con qué se asocia a ${t.name} y con qué a ${pair.term.name}?`
+              : `Explica y diferencia «${t.name}» y «${pair.term.name}».`;
             return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n${card(pair)}`, keyPoints: t.refs ? [...refNames(t.desc).slice(0, 2), ...refNames(pair.term.desc).slice(0, 2)] : [...keyIdeas(t.desc, 2), ...keyIdeas(pair.term.desc, 2)], explanation: `${cite(f)}\n${cite(pair)}` };
           }
         }
-        const prompt = t.refs ? `En el tema «${T}», ¿qué autores asocia el material con «${t.label}»?`
-          : t.generic ? `En el tema «${T}», ¿qué indica el material como «${t.label.toLowerCase()}»?`
-          : `En el tema «${T}», explica «${t.label}» según el material.`;
+        const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}»?`
+          : t.generic ? `¿Qué se plantea como «${t.label.toLowerCase()}» en «${T}»?`
+          : t.person ? `¿Con qué se asocia a ${t.name}?`
+          : `Explica «${t.name}».`;
         const kp = t.refs ? refNames(t.desc).slice(0, 4) : keyIdeas(t.desc, 4);
         return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
       }
@@ -461,21 +493,20 @@ function generateLocal(files, cfg) {
         if (pair) {
           mark(pair, "open");
           const other = npLower(pair.subj);
-          const where = pair.topic === T ? ` (tema «${T}»)` : ` (temas «${T}» y «${pair.topic}»)`;
           // Solo se pide «comparar» conceptos de la misma clase («entrevista abierta» y «entrevista cerrada»); si no, su relación.
           const comparable = normalize(pair.subj.noun.split(" ")[0]) === headWord;
           const prompt = d === "jacqueline"
-            ? (comparable ? `Compara ${np} y ${other}${where}: ¿en qué se parecen y en qué se diferencian según el material? Sé preciso con los datos.`
-              : `¿Qué relación hay entre ${np} y ${other}${where} según el material? Explícala con los datos exactos que aporta.`)
-            : `En el tema «${T}», explica qué dice el material sobre ${np} y sobre ${other}, y cómo se relacionan.`;
+            ? (comparable ? `Compara ${np} y ${other}: ¿en qué se parecen y en qué se diferencian? Sé preciso con los datos.`
+              : `¿Qué relación hay entre ${np} y ${other}? Explícala con datos concretos.`)
+            : `Explica ${np} y ${other}, y cómo se relacionan.`;
           return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`, keyPoints: [...new Set([...keyIdeas(s.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
         }
       }
       // La pregunta pide solo lo que el material contesta: «¿qué es…?» únicamente si hay definición.
-      const prompt = s.def && d === "easy" ? `En el tema «${T}», ¿qué ${s.copula} ${np} según el material?`
-        : s.def ? `En el tema «${T}», describe ${np}: ¿qué ${s.plural ? "son" : "es"} y qué características ${s.plural ? "tienen" : "tiene"} según el material?`
-        : s.proper && !s.det && !s.prefix ? `En el tema «${T}», ¿qué hizo ${np} según el material y por qué es relevante?`
-        : `En el tema «${T}», ¿qué dice el material sobre ${np}${pp}?${d === "easy" ? "" : " Incluye los datos que aporta."}`;
+      const prompt = s.def && d === "easy" ? `¿Qué ${s.copula} ${np}?`
+        : s.def ? `Describe ${np}: ¿qué ${s.plural ? "son" : "es"} y qué características ${s.plural ? "tienen" : "tiene"}?`
+        : s.proper && !s.det && !s.prefix ? `¿Qué hizo ${np} y por qué es relevante?`
+        : `¿Qué se afirma sobre ${np}${pp}?${d === "easy" ? "" : " Incluye los datos concretos."}`;
       const kp = keyIdeas(card(f), 4, s.noun);
       return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
     },
@@ -492,5 +523,5 @@ function generateLocal(files, cfg) {
     if (made) questions.push(made);
   }
   if (!questions.length) throw new Error("No se pudieron generar preguntas con este material en modo demo: tiene muy pocas oraciones completas. Prueba con documentos Word, PDF o de texto con párrafos completos, o usa With Gemini o tu cuenta de Claude.");
-  return { questions: shuffle(questions), coverage: 100 };
+  return { questions: shuffle(questions.map((q) => ({ ...q, prompt: ucFirst(cleanPrompt(q.prompt)) }))), coverage: 100 };
 }

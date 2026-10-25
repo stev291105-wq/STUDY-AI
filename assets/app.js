@@ -485,8 +485,8 @@ const TYPE_FORMAT = {
 
 function normalizeQuestion(r) {
   const q = {
-    id: uid(), type: r?.type, prompt: String(r?.prompt || "").trim(), explanation: String(r?.explanation || "").trim(),
-    topic: String(r?.topic || "").trim().slice(0, 80),
+    id: uid(), type: r?.type, prompt: cleanPrompt(r?.prompt), explanation: String(r?.explanation || "").trim(),
+    topic: cleanTopic(String(r?.topic || "").trim()).slice(0, 80),
     source: { doc: String(r?.source_document || ""), loc: String(r?.source_location || "") },
   };
   if (!q.topic || /^general$/i.test(q.topic)) q.topic = q.source.loc && !/^(p[aá]gina|fragmento|texto)/i.test(q.source.loc) ? q.source.loc : docTitle(q.source.doc || "Material de estudio");
@@ -537,6 +537,8 @@ Calidad obligatoria (sentido y lógica):
 - Verdadero o Falso: una afirmación completa. Las falsas lo son por un dato concreto del material (un concepto, cifra, relación o condición cambiada), nunca por ser absurdas o agramaticales.
 - Completar: el hueco es un concepto clave (nunca un artículo, verbo auxiliar ni palabra genérica) y la oración sigue teniendo sentido completo con el hueco.
 - Abierta: pide algo concreto (explicar, comparar, justificar, aplicar) y "model_answer" la responde completa con el material.
+- El enunciado ("prompt") es SOLO la pregunta, directa y completa. No menciones el documento, el archivo, el libro, la sección, el capítulo, el tema ni la página, ni uses fórmulas como "según el material", "según el texto" o "en la sección X del manual". La temática va únicamente en "topic" y la ubicación en "source_location".
+- La respuesta correcta responde exactamente a lo que pregunta el enunciado, y la explicación justifica esa respuesta con el material.
 - La dificultad se nota en lo que se exige pensar, no en enredar la redacción.
 Antes de responder, revisa cada pregunta contra estas reglas y corrige o sustituye las que no cumplan.${seen.length ? `\nNo repitas ni reformules estas preguntas ya usadas:\n${seen.map((p) => "• " + p.slice(0, 160)).join("\n")}` : ""}
 
@@ -732,6 +734,8 @@ function parseSubject(sent, midCaps) {
     rest = rest.slice(m[0].length);
   }
   if (!/^\p{Ll}/u.test(rest) || rest.split(/\s+/).length < 3) return null;
+  // Si tras el concepto sigue una preposición («La evaluación por etapas organiza…»), el concepto está incompleto: no se usa.
+  if (/^(por|con|en|sin|para|de|del|a|al|entre|sobre|hacia|desde|hasta|según|mediante|durante|tras|bajo|ante)\s/i.test(rest)) return null;
   const noun = np.join(" ");
   const npText = (det ? det + " " : "") + noun;
   return {
@@ -774,8 +778,34 @@ function parseTerm(line) {
   const words = desc.replace(/\([^)]*\)/g, " ").split(/[\s,;]+/).filter((w) => /\p{L}/u.test(w));
   const content = words.filter((w) => !/^(y|e|de|del|la|las|los|el|van|von|da|di|du|le)$/i.test(w));
   const refs = content.length > 0 && content.filter((w) => isCap(w)).length / content.length >= 0.7;
-  return { label, desc, refs, generic: GEN_LABEL.test(label) };
+  // «Rocío Fernández Ballesteros (española)» → nombre «Rocío Fernández Ballesteros», y se reconoce como persona.
+  const name = label.replace(/\s*\([^)]*\)/g, "").trim() || label;
+  const nw = name.split(/\s+/);
+  const person = nw.length >= 2 && nw.every((w) => isCap(w) || /^(de|del|la|las|los|y|van|von|da|di)$/i.test(w)) && nw.filter(isCap).length >= 2;
+  return { label, name, desc, refs, person, generic: GEN_LABEL.test(label) };
 }
+// Enunciado de una entrada de esquema: «Los autores de X son: …», «X se asocia con: …», «X se describe como: …».
+const termSay = (t, desc, blank = false) => {
+  const L = blank ? BLANK : `«${t.name}»`;
+  return t.refs ? `Los autores de ${L} son: ${desc}.` : t.person ? `${L} se asocia con: ${desc}.` : `${L} se describe como: ${desc}.`;
+};
+// Limpieza del enunciado: sin referencias a documento, sección, tema o página («Según el material, …», «(pág. 12)»).
+function cleanPrompt(p) {
+  let t = String(p || "").trim();
+  const DOCW = "material|texto|documento|apunte|apuntes|libro|manual|lectura|resumen|archivo|pdf|presentaci[oó]n|diapositiva|secci[oó]n|cap[ií]tulo|apartado|tema|unidad|p[áa]gina";
+  for (let i = 0; i < 3; i++) {
+    const before = t;
+    t = t.replace(new RegExp(`^(?:seg[uú]n|de acuerdo con|conforme a|tal como (?:indica|se[ñn]ala|dice))\\s+(?:el|la|los|las|lo que (?:dice|indica) (?:el|la))\\s+(?:${DOCW})\\b[^,:?¿]{0,140}[,:]\\s*`, "i"), "")
+      .replace(new RegExp(`^en\\s+(?:el|la|los|las)\\s+(?:${DOCW})\\b[^,:?¿]{0,140}[,:]\\s*`, "i"), "")
+      .replace(/^(?:p[áa]gina|p[áa]g\.?|diapositiva|fragmento)\s*\d+(?:\s*\/\s*\d+)?\s*[:,.\-–]\s*/i, "")
+      .replace(/^sobre\s+«[^»]{1,120}»\s*[:,]\s*/i, "").replace(/^tema\s+«[^»]{1,120}»\s*[:,.-]\s*/i, "");
+    if (t === before) break;
+  }
+  t = t.replace(/\s*\((?:p[áa]g(?:ina)?s?|pp?)\.?\s*[\d\s,\-–y]+\)/gi, "")
+    .replace(new RegExp(`,?\\s+(?:seg[uú]n|de acuerdo con)\\s+(?:el|la)\\s+(?:${DOCW})(?:\\s+de estudio)?(?=\\s*[?.!]|$)`, "gi"), "");
+  return t.replace(/^([¿¡«"]?)(\p{Ll})/u, (m, a, c) => a + c.toUpperCase());
+}
+
 // Nombres propios citados en una lista de autores: «Sternberg (1998), Fernández Ballesteros y Grigorenko» → [Sternberg, Fernández Ballesteros, Grigorenko].
 const refNames = (desc) => desc.replace(/\([^)]*\)/g, ",").split(/\s*(?:,|;|\by\b|\be\b)\s*/).map((x) => x.trim()).filter((x) => /^\p{Lu}/u.test(x));
 
@@ -829,7 +859,8 @@ function buildFacts(files) {
     const subj = parseSubject(s.text, midCaps);
     // Una oración sin sujeto reconocible ni verbo es un fragmento: no sirve para preguntar.
     if (!subj && !hasVerb(s.text)) return;
-    const anaphoric = ANAPHOR.test(s.text);
+    // También dependen de la anterior las que remiten a algo ya dicho («el símbolo de este periodo»).
+    const anaphoric = ANAPHOR.test(s.text) || /\b(este|esta|estos|estas|dicho|dicha|dichos|dichas|aquel|aquella)\s+\p{L}/iu.test(s.text);
     if (anaphoric && !ctx.before) return;
     // Cifras de la prosa; los años de las citas («Sternberg (1998)») y las páginas no son datos que estudiar.
     const prose = s.text.replace(/\([^)]*\)/g, " ").replace(/\b(?:p[áa]gs?|pp?)\.\s*\d+/gi, " ");
@@ -931,7 +962,7 @@ function generateLocal(files, cfg) {
   };
   // Otras entradas «Concepto: descripción» del mismo documento y de la misma clase (listas de autores con listas de autores).
   const termPeers = (f) => {
-    const list = terms.filter((x) => x.fi === f.fi && x.id !== f.id && !x.term.generic && x.term.refs === f.term.refs
+    const list = terms.filter((x) => x.fi === f.fi && x.id !== f.id && !x.term.generic && x.term.refs === f.term.refs && x.term.person === f.term.person
       && !overlaps(x.term.label, f.term.label) && normalize(x.term.desc) !== normalize(f.term.desc));
     return [...shuffle(list.filter((x) => x.topic === f.topic)), ...shuffle(list.filter((x) => x.topic !== f.topic))];
   };
@@ -951,16 +982,17 @@ function generateLocal(files, cfg) {
       if (f.term) {
         // «¿Con qué concepto relaciona el material a estos autores?» con los otros conceptos del mismo esquema.
         if (f.term.generic) return null;
-        const opts = optionsWith(f.term.label, termPeers(f).map((x) => x.term.label));
+        const opts = optionsWith(f.term.name, termPeers(f).map((x) => x.term.name));
         if (!opts) return null;
-        const prompt = f.term.refs ? `En el tema «${T}», ¿con qué concepto relaciona el material a estos autores?\n«${f.term.desc}»`
-          : `En el tema «${T}», ¿a qué concepto corresponde esta descripción del material?\n«${f.term.desc}»`;
-        return { ...base(f, "multiple_choice"), prompt, options: opts, answerIndex: opts.indexOf(ucFirst(f.term.label)), explanation: `La respuesta es «${f.term.label}».\n${cite(f)}` };
+        const prompt = f.term.refs ? `¿A qué concepto corresponden estos autores?\n«${f.term.desc}»`
+          : f.term.person ? `¿A quién se asocia lo siguiente?\n«${f.term.desc}»`
+          : `¿Qué concepto se describe así?\n«${f.term.desc}»`;
+        return { ...base(f, "multiple_choice"), prompt, options: opts, answerIndex: opts.indexOf(ucFirst(f.term.name)), explanation: `La respuesta es «${f.term.name}».\n${cite(f)}` };
       }
       // 1) Definición: «¿Qué es la mitocondria?» con definiciones reales de otros conceptos.
       if (f.subj?.def && (d === "easy" || d === "medium" || Math.random() < 0.4)) {
         const opts = optionsWith(f.subj.def, peers(f, { defs: true }).map((x) => x.subj.def));
-        if (opts) return { ...base(f, "multiple_choice"), prompt: `En el tema «${T}», ¿qué ${f.subj.copula} ${npLower(f.subj)} según el material?`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.def)) };
+        if (opts) return { ...base(f, "multiple_choice"), prompt: `¿Qué ${f.subj.copula} ${npLower(f.subj)}?`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.def)) };
       }
       // 2) Dato concreto (niveles altos): la cifra exacta.
       if (hard && f.numbers.length) {
@@ -968,7 +1000,7 @@ function generateLocal(files, cfg) {
         const vars = numericVariants(n, f.numbers).slice(0, nOpts - 1);
         if (vars.length >= nOpts - 1) {
           const opts = shuffle([n, ...vars]);
-          return { ...base(f, "multiple_choice"), prompt: `${lead(f)}En el tema «${T}», ¿qué dato completa correctamente la afirmación?\n«${replaceOnce(f.text, n, BLANK)}»`, options: opts, answerIndex: opts.indexOf(n) };
+          return { ...base(f, "multiple_choice"), prompt: `${lead(f)}¿Qué dato completa correctamente esta afirmación?\n«${replaceOnce(f.text, n, BLANK)}»`, options: opts, answerIndex: opts.indexOf(n) };
         }
       }
       // 3) Concepto: «¿A qué concepto corresponde esta afirmación?» con conceptos del mismo documento y misma concordancia.
@@ -977,7 +1009,7 @@ function generateLocal(files, cfg) {
         const opts = optionsWith(f.subj.npText, others.map((x) => x.subj.npText));
         if (opts) {
           const stem = f.subj.prefix ? `${f.subj.prefix}${BLANK} ${f.subj.pred}` : `${BLANK} ${f.subj.pred}`;
-          return { ...base(f, "multiple_choice"), prompt: `En el tema «${T}», ¿a qué concepto corresponde esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.npText)) };
+          return { ...base(f, "multiple_choice"), prompt: `¿A qué concepto se refiere esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.npText)) };
         }
       }
       return null;
@@ -989,9 +1021,9 @@ function generateLocal(files, cfg) {
         // Emparejar cada concepto con su descripción; la falsa usa la descripción de otro concepto del mismo esquema.
         if (f.term.generic) return null;
         const pick = termPeers(f)[0];
-        const say = (desc) => `Sobre «${T}»: ¿verdadero o falso?\nSegún el material, a «${f.term.label}» le corresponde: ${desc}.`;
+        const say = (desc) => termSay(f.term, desc);
         if (!pick || Math.random() < 0.45) return { ...b, prompt: say(f.term.desc), answerBool: true, explanation: `Es verdadera.\n${cite(f)}` };
-        return { ...b, prompt: say(pick.term.desc), answerBool: false, explanation: `Es falsa. Eso corresponde a «${pick.term.label}». Para «${f.term.label}», el material indica: ${f.term.desc}.\n${cite(f)}` };
+        return { ...b, prompt: say(pick.term.desc), answerBool: false, explanation: `Es falsa. Eso corresponde a «${pick.term.name}». Lo correcto es: ${termSay(f.term, f.term.desc)}\n${cite(f)}` };
       }
       const falses = [];
       if (f.subj) {
@@ -1009,23 +1041,23 @@ function generateLocal(files, cfg) {
         falses.push({ text: f.text.replace(/\bno\s+/, ""), why: `El material dice justo lo contrario.` });
       const order = hard ? [...falses].reverse() : falses;
       const pickFalse = order.find((x) => !sentences.has(normalize(x.text)) && x.text !== f.text);
-      const ask = (text) => `${lead(f)}Sobre «${T}»: ¿verdadero o falso?\n«${text}»`;
+      const ask = (text) => `${lead(f)}${text}`;
       if (!pickFalse || Math.random() < 0.45) return f.subj || f.numbers.length ? { ...b, prompt: ask(f.text), answerBool: true, explanation: `Es verdadera: el material lo afirma así.\n${cite(f)}` } : null;
       return { ...b, prompt: ask(pickFalse.text), answerBool: false, explanation: `Es falsa. ${pickFalse.why}\n${cite(f)}` };
     },
 
     fill_blank(f) {
       const T = f.topic;
-      const head = `${lead(f)}Completa según el material (tema «${T}»):\n`;
+      const head = lead(f);
       if (f.term) {
         if (f.term.generic) return null;
         const names = f.term.refs ? refNames(f.term.desc) : [];
         // Jacqueline: el concepto y uno de sus autores.
         if (d === "jacqueline" && names.length > 1) {
           const who = names[0];
-          return { ...base(f, "fill_blank"), prompt: `${head}${BLANK}: ${replaceOnce(f.term.desc, who, BLANK)}.`, answers: [[f.term.label], [who]], explanation: `Respuestas: «${f.term.label}» y «${who}».\n${cite(f)}` };
+          return { ...base(f, "fill_blank"), prompt: head + termSay(f.term, replaceOnce(f.term.desc, who, BLANK), true), answers: [[f.term.name, f.term.label], [who]], explanation: `Respuestas: «${f.term.name}» y «${who}».\n${cite(f)}` };
         }
-        return { ...base(f, "fill_blank"), prompt: `${head}${BLANK}: ${f.term.desc}.`, answers: [[f.term.label]], explanation: `Respuesta: «${f.term.label}».\n${cite(f)}` };
+        return { ...base(f, "fill_blank"), prompt: head + termSay(f.term, f.term.desc, true), answers: [[...new Set([f.term.name, f.term.label])]], explanation: `Respuesta: «${f.term.name}».\n${cite(f)}` };
       }
       const numBlank = f.numbers.length && (hard || !f.subj);
       if (d === "jacqueline" && f.subj && !f.subj.proper && f.numbers.length) {
@@ -1055,14 +1087,16 @@ function generateLocal(files, cfg) {
           const pair = termPeers(f).find((x) => x.topic === T && usable(x, "open"));
           if (pair) {
             mark(pair, "open");
-            const prompt = t.refs ? `En el tema «${T}», ¿qué autores sitúa el material en «${t.label}» y cuáles en «${pair.term.label}»?`
-              : `En el tema «${T}», explica y diferencia «${t.label}» y «${pair.term.label}» según el material.`;
+            const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}» y cuáles a «${pair.term.name}»?`
+              : t.person ? `¿Con qué se asocia a ${t.name} y con qué a ${pair.term.name}?`
+              : `Explica y diferencia «${t.name}» y «${pair.term.name}».`;
             return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n${card(pair)}`, keyPoints: t.refs ? [...refNames(t.desc).slice(0, 2), ...refNames(pair.term.desc).slice(0, 2)] : [...keyIdeas(t.desc, 2), ...keyIdeas(pair.term.desc, 2)], explanation: `${cite(f)}\n${cite(pair)}` };
           }
         }
-        const prompt = t.refs ? `En el tema «${T}», ¿qué autores asocia el material con «${t.label}»?`
-          : t.generic ? `En el tema «${T}», ¿qué indica el material como «${t.label.toLowerCase()}»?`
-          : `En el tema «${T}», explica «${t.label}» según el material.`;
+        const prompt = t.refs ? `¿Qué autores corresponden a «${t.name}»?`
+          : t.generic ? `¿Qué se plantea como «${t.label.toLowerCase()}» en «${T}»?`
+          : t.person ? `¿Con qué se asocia a ${t.name}?`
+          : `Explica «${t.name}».`;
         const kp = t.refs ? refNames(t.desc).slice(0, 4) : keyIdeas(t.desc, 4);
         return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
       }
@@ -1076,21 +1110,20 @@ function generateLocal(files, cfg) {
         if (pair) {
           mark(pair, "open");
           const other = npLower(pair.subj);
-          const where = pair.topic === T ? ` (tema «${T}»)` : ` (temas «${T}» y «${pair.topic}»)`;
           // Solo se pide «comparar» conceptos de la misma clase («entrevista abierta» y «entrevista cerrada»); si no, su relación.
           const comparable = normalize(pair.subj.noun.split(" ")[0]) === headWord;
           const prompt = d === "jacqueline"
-            ? (comparable ? `Compara ${np} y ${other}${where}: ¿en qué se parecen y en qué se diferencian según el material? Sé preciso con los datos.`
-              : `¿Qué relación hay entre ${np} y ${other}${where} según el material? Explícala con los datos exactos que aporta.`)
-            : `En el tema «${T}», explica qué dice el material sobre ${np} y sobre ${other}, y cómo se relacionan.`;
+            ? (comparable ? `Compara ${np} y ${other}: ¿en qué se parecen y en qué se diferencian? Sé preciso con los datos.`
+              : `¿Qué relación hay entre ${np} y ${other}? Explícala con datos concretos.`)
+            : `Explica ${np} y ${other}, y cómo se relacionan.`;
           return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`, keyPoints: [...new Set([...keyIdeas(s.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
         }
       }
       // La pregunta pide solo lo que el material contesta: «¿qué es…?» únicamente si hay definición.
-      const prompt = s.def && d === "easy" ? `En el tema «${T}», ¿qué ${s.copula} ${np} según el material?`
-        : s.def ? `En el tema «${T}», describe ${np}: ¿qué ${s.plural ? "son" : "es"} y qué características ${s.plural ? "tienen" : "tiene"} según el material?`
-        : s.proper && !s.det && !s.prefix ? `En el tema «${T}», ¿qué hizo ${np} según el material y por qué es relevante?`
-        : `En el tema «${T}», ¿qué dice el material sobre ${np}${pp}?${d === "easy" ? "" : " Incluye los datos que aporta."}`;
+      const prompt = s.def && d === "easy" ? `¿Qué ${s.copula} ${np}?`
+        : s.def ? `Describe ${np}: ¿qué ${s.plural ? "son" : "es"} y qué características ${s.plural ? "tienen" : "tiene"}?`
+        : s.proper && !s.det && !s.prefix ? `¿Qué hizo ${np} y por qué es relevante?`
+        : `¿Qué se afirma sobre ${np}${pp}?${d === "easy" ? "" : " Incluye los datos concretos."}`;
       const kp = keyIdeas(card(f), 4, s.noun);
       return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
     },
@@ -1107,7 +1140,7 @@ function generateLocal(files, cfg) {
     if (made) questions.push(made);
   }
   if (!questions.length) throw new Error("No se pudieron generar preguntas con este material en modo demo: tiene muy pocas oraciones completas. Prueba con documentos Word, PDF o de texto con párrafos completos, o usa With Gemini o tu cuenta de Claude.");
-  return { questions: shuffle(questions), coverage: 100 };
+  return { questions: shuffle(questions.map((q) => ({ ...q, prompt: ucFirst(cleanPrompt(q.prompt)) }))), coverage: 100 };
 }
 
 /* =====================================================================
@@ -1385,10 +1418,10 @@ const FEATURES = [
   ["shield", "mint", "Sin servidor propio", "Tus archivos se leen en tu navegador y tus keys solo se guardan ahí. Con modo claro y oscuro."],
 ];
 const STUDY_MODES = [
-  ["spark", "sky", "With Gemini", true, "Conecta gratis tu cuenta de Google. Lee imágenes y letra a mano, redacta las preguntas y corrige tus respuestas."],
-  ["user", "lav", "Cuenta de Claude", true, "Abre StudyMaster dentro de claude.ai con tu propia cuenta, sin API key. Tu historial queda en la nube."],
-  ["file", "butter", "Demo local", false, "Sin IA y sin cuenta: todo ocurre en tu navegador. Funciona mejor con Word, PDF o archivos de texto."],
-  ["cpu", "peach", "Tu API key", false, "¿Ya tienes una key? Úsala con Gemini, Llama (vía Groq) o Grok (xAI)."],
+  ["spark", "sky", "With Gemini", "rec", "Conecta gratis tu cuenta de Google. Lee imágenes y letra a mano, redacta las preguntas y corrige tus respuestas."],
+  ["file", "butter", "Demo local", "", "Sin IA y sin cuenta: todo ocurre en tu navegador. Funciona mejor con Word, PDF o archivos de texto."],
+  ["cpu", "peach", "Tu API key", "", "¿Ya tienes una key? Úsala con Gemini, Llama (vía Groq) o Grok (xAI)."],
+  ["user", "lav", "Cuenta de Claude", "exp", "Abre StudyMaster como artefacto en claude.ai con tu propia cuenta. Podría aún no funcionar: está en desarrollo."],
 ];
 const HOW = [["Sube tus apuntes", "Archivos, carpetas o fotos."], ["Configura tu test", "Tipos de pregunta, nivel y cantidad."], ["Responde y repasa", "Corrección, nota y repaso completo."]];
 
@@ -1453,7 +1486,7 @@ function LoginScreen({ onChoose, notice }) {
           <label htmlFor="nick" className="text-sm font-bold -mb-2">Nombre o apodo <span className="font-normal" style=${muted}>(opcional)</span></label>
           <input id="nick" className="field !py-3 !text-base" placeholder="Ej. Ana" autoComplete="nickname" value=${nick} maxLength="40" onInput=${(e) => setNick(e.target.value)} />
           <button type="submit" className="btn btn-primary w-full !py-4 !text-lg">Acceder <${Icon} name="arrow" /></button>
-          <p className="text-sm" style=${muted}>Después de acceder eliges cómo estudiar: <b>With Gemini</b>, tu <b>cuenta de Claude</b>, el <b>demo sin IA</b> o tu propia <b>API key</b>.</p>
+          <p className="text-sm" style=${muted}>Después de acceder eliges cómo estudiar: <b>With Gemini</b>, el <b>demo sin IA</b>, tu propia <b>API key</b> o, en pruebas, tu <b>cuenta de Claude</b>.</p>
         </form>
         <ul className="access-perks">
           <li><${Icon} name="check" size=${16} stroke=${3} /> Gratis y sin instalar nada</li>
@@ -1478,10 +1511,10 @@ function LoginScreen({ onChoose, notice }) {
         <div><div className="eyebrow">Modos de estudio</div><h2 id="modes-title" className="text-2xl sm:text-[1.9rem] font-extrabold">Cuatro formas de estudiar</h2>
           <p className="text-sm mt-1" style=${muted}>Los eliges en la siguiente pantalla, después de acceder, y puedes cambiar de modo cuando quieras.</p></div>
         <div className="grid sm:grid-cols-2 gap-3">
-          ${STUDY_MODES.map(([icon, tone, t, rec, d], i) => html`<article key=${t} className=${"feature card p-4 flex gap-3 " + (rec ? "is-rec" : "")}>
+          ${STUDY_MODES.map(([icon, tone, t, flag, d], i) => html`<article key=${t} className=${"feature card p-4 flex gap-3 " + (flag === "rec" ? "is-rec" : "")}>
             <${IconTile} name=${icon} tone=${tone} />
             <div className="min-w-0">
-              <h3 className="font-bold leading-snug flex flex-wrap items-center gap-x-2 gap-y-1"><span className="mono text-xs opacity-60">${i + 1}</span>${t}${rec && html`<span className="pill tone-butter !text-[11px] !py-0.5">★ Recomendado</span>`}</h3>
+              <h3 className="font-bold leading-snug flex flex-wrap items-center gap-x-2 gap-y-1"><span className="mono text-xs opacity-60">${i + 1}</span>${t}${flag === "rec" && html`<span className="pill tone-butter !text-[11px] !py-0.5">★ Recomendado</span>`}${flag === "exp" && html`<span className="pill exp-badge !text-[11px] !py-0.5">Función experimental</span>`}</h3>
               <p className="text-sm mt-0.5" style=${muted}>${d}</p>
             </div>
           </article>`)}
@@ -1831,10 +1864,32 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, claudeDiag, api, setA
       ${!IN_CLAUDE && mode === "gemini" && html`<${GeminiPanel} gem=${gem} setGem=${setGem} />`}
       ${!IN_CLAUDE && mode === "gemini" && !geminiReady && html`<p className="text-xs font-bold mt-1 text-peach">Mientras conectas tu cuenta se usa el modo demo.</p>`}
     <//>
-    <${ModeCard} id="claude" num="2" active=${mode === "claude"} available=${IN_CLAUDE ? claudeOk : true} onPick=${IN_CLAUDE ? onMode : () => window.open(LINKS.claudeApp, "_blank", "noopener")}
-      title=${html`Cuenta de Claude <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
+    <${ModeCard} id="demo" num="2" active=${mode === "demo"} available=${true} onPick=${onMode}
+      title="Demo local" desc="Sin IA: extracción con PDF.js y Mammoth, OCR con Tesseract y preguntas por reglas, todo en tu navegador."
+      tags=${["sin cuenta", "privado", "texto impreso"]}>
+      ${mode === "demo" && html`<div className="mt-2 rounded-xl p-3 tone-butter text-sm flex flex-col gap-2" role="note" onClick=${(e) => e.stopPropagation()} style=${{ cursor: "default" }}>
+        <b>Recomendación sobre el modo demo</b>
+        <span>Este modo es más simple: no usa inteligencia artificial y crea las preguntas con reglas a partir de las oraciones de tus documentos. Funciona mejor con <b>Word, PDF o archivos de texto</b> con párrafos bien redactados; con fotos, esquemas o apuntes a mano obtendrá poco.</span>
+        <span>Para mejores resultados y un análisis más completo, conecta <b>Gemini</b> (gratis con tu cuenta de Google). Si lo prefieres, puedes seguir en este modo.</span>
+        <span className="flex flex-wrap gap-2">
+          ${!IN_CLAUDE && html`<button className="btn btn-primary !py-1.5 text-sm" onClick=${() => onMode("gemini")}>Usar With Gemini</button>`}
+          ${IN_CLAUDE && claudeOk && html`<button className="btn btn-primary !py-1.5 text-sm" onClick=${() => onMode("claude")}>Usar mi cuenta de Claude</button>`}
+          ${IN_CLAUDE && html`<a className="btn btn-ghost !py-1.5 text-sm" href=${LINKS.web} target="_blank" rel="noopener">Usar Gemini en la versión web ↗</a>`}
+        </span>
+      </div>`}
+    <//>
+    <${ModeCard} id="api" num="3" active=${mode === "api"} available=${!IN_CLAUDE} onPick=${onMode}
+      title="Mi API key" desc=${IN_CLAUDE ? "Disponible en la versión web: este visor de Claude bloquea conexiones a otros servicios." : "Conecta tu key de Google Gemini, Llama (vía Groq) o Grok (xAI)."}
+      tags=${IN_CLAUDE ? [] : ["Gemini", "Llama", "Grok"]}>
+      ${IN_CLAUDE && html`<a className="btn btn-ghost !py-2 text-sm mt-2 self-start" href=${LINKS.web} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}>Abrir versión web ↗</a>`}
+      ${!IN_CLAUDE && mode === "api" && html`<${ApiPanel} api=${api} setApi=${setApi} />`}
+      ${!IN_CLAUDE && mode === "api" && !apiReady && html`<p className="text-xs font-bold mt-1 text-peach">Escribe tu key y pulsa «Probar conexión». Mientras tanto se usa el modo demo.</p>`}
+    <//>
+    <${ModeCard} id="claude" num="4" active=${mode === "claude"} available=${IN_CLAUDE ? claudeOk : true} onPick=${IN_CLAUDE ? onMode : () => window.open(LINKS.claudeApp, "_blank", "noopener")}
+      title=${html`Cuenta de Claude <span className="pill exp-badge !text-[11px] ml-1 align-middle">Función experimental</span>`}
       desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude, sin API key: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "claude.ai no ofrece la IA de tu cuenta a esta página. Pasa si no has iniciado sesión o si la abres con una cuenta distinta de la que publicó la página. Mientras tanto se usa el modo demo.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key: lee imágenes y letra a mano y redacta preguntas a medida."}
       tags=${IN_CLAUDE ? (claudeVision ? ["OCR + manuscritos", "preguntas IA", "validación IA"] : ["preguntas IA", "validación IA"]) : []}>
+      <span className="text-xs font-bold mt-1" style=${{ color: "rgb(var(--bad))" }}>Podría aún no funcionar: está en desarrollo.</span>
       ${IN_CLAUDE && !claudeOk && claudeDiag && html`<span className="text-xs mt-1 rounded-lg px-2 py-1.5" style=${{ background: "rgb(var(--surface-2))", color: "rgb(var(--muted))" }}>Estado: ${claudeDiag}</span>`}
       ${IN_CLAUDE && !claudeOk && html`<button className="btn btn-primary !py-2 text-sm mt-2 self-start" onClick=${async (e) => {
         e.stopPropagation();
@@ -1845,27 +1900,6 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, claudeDiag, api, setA
       }}><${Icon} name="user" size=${16} /> Conectar mi cuenta de Claude</button>`}
       ${!IN_CLAUDE && html`<a className="btn btn-primary !py-2 text-sm mt-2 self-start !whitespace-normal" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Abrir en Claude ↗</a>
         <span className="text-xs mt-1" style=${{ color: "rgb(var(--muted))" }}>StudyMaster se abre como artefacto en Claude (claude.ai en el navegador o la app de Claude) y entra directo a la página de estudio con la IA de tu cuenta.</span>`}
-    <//>
-    <${ModeCard} id="demo" num="3" active=${mode === "demo"} available=${true} onPick=${onMode}
-      title="Demo local" desc="Sin IA: extracción con PDF.js y Mammoth, OCR con Tesseract y preguntas por reglas, todo en tu navegador."
-      tags=${["sin cuenta", "privado", "texto impreso"]}>
-      ${mode === "demo" && html`<div className="mt-2 rounded-xl p-3 tone-butter text-sm flex flex-col gap-2" role="note" onClick=${(e) => e.stopPropagation()} style=${{ cursor: "default" }}>
-        <b>Recomendación sobre el modo demo</b>
-        <span>Este modo es más simple: no usa inteligencia artificial y crea las preguntas con reglas a partir de las oraciones de tus documentos. Funciona mejor con <b>Word, PDF o archivos de texto</b> con párrafos bien redactados; con fotos, esquemas o apuntes a mano obtendrá poco.</span>
-        <span>Para mejores resultados y un análisis más completo, inicia sesión con <b>Claude</b> o conecta <b>Gemini</b>. Si lo prefieres, puedes seguir en este modo.</span>
-        <span className="flex flex-wrap gap-2">
-          ${!IN_CLAUDE && html`<button className="btn btn-primary !py-1.5 text-sm" onClick=${() => onMode("gemini")}>Usar With Gemini</button>`}
-          ${IN_CLAUDE ? claudeOk && html`<button className="btn btn-primary !py-1.5 text-sm" onClick=${() => onMode("claude")}>Usar mi cuenta de Claude</button>`
-            : html`<a className="btn btn-ghost !py-1.5 text-sm" href=${LINKS.claudeApp} target="_blank" rel="noopener">Abrir en Claude ↗</a>`}
-        </span>
-      </div>`}
-    <//>
-    <${ModeCard} id="api" num="4" active=${mode === "api"} available=${!IN_CLAUDE} onPick=${onMode}
-      title="Mi API key" desc=${IN_CLAUDE ? "Disponible en la versión web: este visor de Claude bloquea conexiones a otros servicios." : "Conecta tu key de Google Gemini, Llama (vía Groq) o Grok (xAI)."}
-      tags=${IN_CLAUDE ? [] : ["Gemini", "Llama", "Grok"]}>
-      ${IN_CLAUDE && html`<a className="btn btn-ghost !py-2 text-sm mt-2 self-start" href=${LINKS.web} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}>Abrir versión web ↗</a>`}
-      ${!IN_CLAUDE && mode === "api" && html`<${ApiPanel} api=${api} setApi=${setApi} />`}
-      ${!IN_CLAUDE && mode === "api" && !apiReady && html`<p className="text-xs font-bold mt-1 text-peach">Escribe tu key y pulsa «Probar conexión». Mientras tanto se usa el modo demo.</p>`}
     <//>
   </section>`;
 }

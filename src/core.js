@@ -483,8 +483,8 @@ const TYPE_FORMAT = {
 
 function normalizeQuestion(r) {
   const q = {
-    id: uid(), type: r?.type, prompt: String(r?.prompt || "").trim(), explanation: String(r?.explanation || "").trim(),
-    topic: String(r?.topic || "").trim().slice(0, 80),
+    id: uid(), type: r?.type, prompt: cleanPrompt(r?.prompt), explanation: String(r?.explanation || "").trim(),
+    topic: cleanTopic(String(r?.topic || "").trim()).slice(0, 80),
     source: { doc: String(r?.source_document || ""), loc: String(r?.source_location || "") },
   };
   if (!q.topic || /^general$/i.test(q.topic)) q.topic = q.source.loc && !/^(p[aá]gina|fragmento|texto)/i.test(q.source.loc) ? q.source.loc : docTitle(q.source.doc || "Material de estudio");
@@ -535,6 +535,8 @@ Calidad obligatoria (sentido y lógica):
 - Verdadero o Falso: una afirmación completa. Las falsas lo son por un dato concreto del material (un concepto, cifra, relación o condición cambiada), nunca por ser absurdas o agramaticales.
 - Completar: el hueco es un concepto clave (nunca un artículo, verbo auxiliar ni palabra genérica) y la oración sigue teniendo sentido completo con el hueco.
 - Abierta: pide algo concreto (explicar, comparar, justificar, aplicar) y "model_answer" la responde completa con el material.
+- El enunciado ("prompt") es SOLO la pregunta, directa y completa. No menciones el documento, el archivo, el libro, la sección, el capítulo, el tema ni la página, ni uses fórmulas como "según el material", "según el texto" o "en la sección X del manual". La temática va únicamente en "topic" y la ubicación en "source_location".
+- La respuesta correcta responde exactamente a lo que pregunta el enunciado, y la explicación justifica esa respuesta con el material.
 - La dificultad se nota en lo que se exige pensar, no en enredar la redacción.
 Antes de responder, revisa cada pregunta contra estas reglas y corrige o sustituye las que no cumplan.${seen.length ? `\nNo repitas ni reformules estas preguntas ya usadas:\n${seen.map((p) => "• " + p.slice(0, 160)).join("\n")}` : ""}
 
