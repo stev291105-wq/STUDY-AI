@@ -455,17 +455,19 @@ const DIFF_SPEC = {
   jacqueline: "NIVEL JACQUELINE (maestro/extremo): preguntas ultra-específicas (cifras, fechas, nombres, condiciones, excepciones y matices, incluidos detalles de imágenes, notas del orador y apuntes manuscritos), capciosas pero justas (absolutos, negaciones, una sola palabra crítica cambiada, opciones casi idénticas) y de correlación avanzada entre secciones y entre documentos distintos. Exigen dominio absoluto de cada detalle. Cada pregunta tiene UNA respuesta inequívocamente correcta según el material.",
 };
 const TYPE_FORMAT = {
-  multiple_choice: (d) => `{"type":"multiple_choice","prompt":"enunciado","options":[${d === "jacqueline" ? "5" : "4"} opciones],"answer_index":0,"explanation":"justificación breve","source_document":"nombre exacto","source_location":"ubicación exacta"} — exactamente una correcta, sin "todas/ninguna de las anteriores"`,
-  true_false: () => `{"type":"true_false","prompt":"afirmación (no pregunta)","answer_bool":true,"explanation":"...","source_document":"...","source_location":"..."} — equilibra verdaderas y falsas`,
-  fill_blank: (d) => `{"type":"fill_blank","prompt":"oración clave con cada concepto omitido escrito como ____","answers":[["respuesta","variante aceptable"]],"explanation":"...","source_document":"...","source_location":"..."} — ${d === "jacqueline" ? "1 a 3" : "1 o 2"} huecos; un arreglo de variantes por hueco, en orden`,
-  open: () => `{"type":"open","prompt":"pregunta de desarrollo","model_answer":"respuesta oficial completa basada en el documento","key_points":["3 a 5 ideas clave"],"explanation":"...","source_document":"...","source_location":"..."}`,
+  multiple_choice: (d) => `{"type":"multiple_choice","prompt":"enunciado","options":[${d === "jacqueline" ? "5" : "4"} opciones],"answer_index":0,"explanation":"justificación breve","topic":"temática","source_document":"nombre exacto","source_location":"ubicación exacta"} — exactamente una correcta, sin "todas/ninguna de las anteriores"`,
+  true_false: () => `{"type":"true_false","prompt":"afirmación (no pregunta)","answer_bool":true,"explanation":"...","topic":"temática","source_document":"...","source_location":"..."} — equilibra verdaderas y falsas`,
+  fill_blank: (d) => `{"type":"fill_blank","prompt":"oración clave con cada concepto omitido escrito como ____","answers":[["respuesta","variante aceptable"]],"explanation":"...","topic":"temática","source_document":"...","source_location":"..."} — ${d === "jacqueline" ? "1 a 3" : "1 o 2"} huecos; un arreglo de variantes por hueco, en orden`,
+  open: () => `{"type":"open","prompt":"pregunta de desarrollo","model_answer":"respuesta oficial completa basada en el documento","key_points":["3 a 5 ideas clave"],"explanation":"...","topic":"temática","source_document":"...","source_location":"..."}`,
 };
 
 function normalizeQuestion(r) {
   const q = {
     id: uid(), type: r?.type, prompt: String(r?.prompt || "").trim(), explanation: String(r?.explanation || "").trim(),
+    topic: String(r?.topic || "").trim().slice(0, 80),
     source: { doc: String(r?.source_document || ""), loc: String(r?.source_location || "") },
   };
+  if (!q.topic || /^general$/i.test(q.topic)) q.topic = q.source.loc && !/^(p[aá]gina|fragmento|texto)/i.test(q.source.loc) ? q.source.loc : docTitle(q.source.doc || "Material de estudio");
   if (!MODES[q.type] || !q.prompt) return null;
   if (q.type === "multiple_choice") {
     const opts = (r.options || []).map((o) => String(o).trim()).filter(Boolean);
@@ -504,14 +506,24 @@ ${DIFF_SPEC[cfg.difficulty]}
 Genera exactamente ${chunk.length} preguntas con esta distribución:
 ${counts.map(([m, n]) => `- ${n} de tipo ${m}: ${TYPE_FORMAT[m](cfg.difficulty)}`).join("\n")}
 
-Reglas: todo debe poder responderse con el material; cubre documentos y secciones de forma equilibrada; escribe en el idioma del material; mezcla los tipos; en "explanation" justifica con el material; usa en "source_document" el nombre exacto del documento y en "source_location" la etiqueta de ubicación (p. ej. "Página 4"). No uses palabras marcadas con [?] o [ilegible].${seen.length ? `\nNo repitas ni reformules estas preguntas ya usadas:\n${seen.map((p) => "• " + p.slice(0, 160)).join("\n")}` : ""}
+Reglas generales: todo debe poder responderse con el material; cubre documentos y secciones de forma equilibrada; escribe en el idioma del material; mezcla los tipos; en "explanation" justifica con el material; usa en "source_document" el nombre exacto del documento y en "source_location" la etiqueta de ubicación (p. ej. "Página 4"). No uses palabras marcadas con [?] o [ilegible].
+"topic": título breve (2 a 6 palabras) de la temática del documento a la que pertenece la pregunta: usa el título de la sección, diapositiva, capítulo o apartado de donde sale; si no hay título, nombra el tema concreto (p. ej. "Respiración celular"), nunca "General" ni el nombre del archivo.
+
+Calidad obligatoria (sentido y lógica):
+- Cada pregunta se entiende sola, está bien redactada y tiene UNA respuesta defendible con el material. Nada de preguntas triviales, ambiguas, con doble negación confusa o que dependan de la numeración de páginas.
+- Selección múltiple: todas las opciones son del mismo tipo que la correcta (conceptos con conceptos, cifras con cifras, nombres con nombres), concuerdan gramaticalmente con el enunciado y son plausibles; ninguna se delata por longitud o forma.
+- Verdadero o Falso: una afirmación completa. Las falsas lo son por un dato concreto del material (un concepto, cifra, relación o condición cambiada), nunca por ser absurdas o agramaticales.
+- Completar: el hueco es un concepto clave (nunca un artículo, verbo auxiliar ni palabra genérica) y la oración sigue teniendo sentido completo con el hueco.
+- Abierta: pide algo concreto (explicar, comparar, justificar, aplicar) y "model_answer" la responde completa con el material.
+- La dificultad se nota en lo que se exige pensar, no en enredar la redacción.
+Antes de responder, revisa cada pregunta contra estas reglas y corrige o sustituye las que no cumplan.${seen.length ? `\nNo repitas ni reformules estas preguntas ya usadas:\n${seen.map((p) => "• " + p.slice(0, 160)).join("\n")}` : ""}
 
 MATERIAL (${material.coverage}% del texto extraído):
 ${material.text}
 
 Responde SOLO con JSON: {"questions":[ ... ]}`;
     const res = await ai.callJSON(prompt, { tier: cfg.difficulty === "hard" || cfg.difficulty === "jacqueline" ? "complex" : "default" });
-    for (const r of Array.isArray(res?.questions) ? res.questions : []) { const q = normalizeQuestion(r); if (q) questions.push(q); }
+    for (const r of Array.isArray(res?.questions) ? res.questions : []) { const q = normalizeQuestion(r); if (q && saneQuestion(q)) questions.push(q); }
     if (ci === 0 && !questions.length) throw { code: "empty_completion" };
   }
   return { questions, coverage: material.coverage };
@@ -548,6 +560,8 @@ const AI_ERRORS = {
   network: "No se pudo conectar con el proveedor desde el navegador (red o bloqueo CORS).",
   model: "El modelo elegido no existe o no acepta esta solicitud. Elige otro en «Modo de uso».",
   no_key: "Falta la API key. Añádela en «Modo de uso».",
+  gemini_quota: "Alcanzaste el límite gratuito de tu cuenta de Gemini; espera un minuto o usa el modo Demo local (sin IA).",
+  gemini_invalid: "La key no es válida. Cópiala completa desde Google AI Studio (empieza por «AIza») y vuelve a pegarla.",
 };
 const aiErrorText = (e) => (e?.code === "api" && e.message) ? e.message : AI_ERRORS[e?.code] || (e?.message ? String(e.message) : "Error inesperado.");
 const DISABLE_CODES = new Set(["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"]);
@@ -559,20 +573,49 @@ const tokens = (t) => t.match(/[\p{L}\p{N}][\p{L}\p{N}%,.\-]*[\p{L}\p{N}%]|[\p{L
 const DEFINITION = /\b(es|son|se define|significa|consiste|se denomina|se llama|se conoce como|corresponde a|refiere a)\b|:/i;
 const DETAIL = /\d|\b(excepto|salvo|solo|únicamente|siempre|nunca|todos|ningún|ninguna|mientras|aunque|sin embargo)\b/i;
 
+// Título del documento sin extensión ni prefijos ("Ejemplo · La célula.txt" → "La célula").
+const docTitle = (name) => name.replace(/\.[^.]+$/, "").replace(/^ejemplo\s*·\s*/i, "").replace(/[_-]+/g, " ").trim();
+const cleanHeading = (t) => t.replace(/^(?:[•\-–*·]\s*)/, "").replace(/[:\s]+$/, "").trim();
+function headingLike(line) {
+  const t = cleanHeading(line);
+  if (t.length < 3 || t.length > 70 || /[.;,]$/.test(line.trim())) return false;
+  if (t.split(/\s+/).length > 9 || !/^[\p{Lu}\d¿¡]/u.test(t)) return false;
+  return (t.match(/\p{L}/gu) || []).length / t.length > 0.6;
+}
+
+/** Oraciones citables con su temática: el título de la sección, diapositiva o página donde aparecen. */
 function buildCorpus(files) {
   const sents = [];
-  files.forEach((f, fi) => f.sections.forEach((sec) => {
-    if (sec.origin === "visual") return;
-    const lines = sec.text.replace(/\r/g, "").replace(/\[[^\]]*\]/g, " ").split(/\n+|(?<=[.!?])\s+(?=[\p{Lu}¿¡\d])/u);
-    lines.forEach((raw, li) => {
-      const t = raw.replace(/^(?:[•\-–*·]\s*|\d{1,2}[.)]\s+)/, "").replace(/\s+/g, " ").trim();
-      const words = t.split(" ");
-      const letters = (t.match(/\p{L}/gu) || []).length / Math.max(1, t.length);
-      if (t.length >= 35 && t.length <= 340 && words.length >= 6 && letters > 0.55) sents.push({ text: t, doc: f.name, loc: sec.location, fi, li, sec });
+  files.forEach((f, fi) => {
+    let heading = "";
+    f.sections.forEach((sec) => {
+      if (sec.origin === "visual") return;
+      const lines = sec.text.replace(/\r/g, "").replace(/\[[^\]]*\]/g, " ").split(/\n+/).map((l) => l.trim()).filter(Boolean);
+      // La primera línea de una diapositiva o página suele ser su título; dentro del texto, un título va seguido de un párrafo.
+      if (sec.origin === "native_text" && lines[0] && headingLike(lines[0]) && (/^Diapositiva/.test(sec.location) || lines.length > 1)) heading = cleanHeading(lines[0]);
+      lines.forEach((line, i) => {
+        const next = lines[i + 1] || "";
+        if (i > 0 && sec.origin === "native_text" && headingLike(line) && next.length >= 40 && next.length > line.length * 1.5 && /[.!?]$/.test(next)) { heading = cleanHeading(line); return; }
+        line.split(/(?<=[.!?])\s+(?=[\p{Lu}¿¡\d])/u).forEach((raw, k) => {
+          const t = raw.replace(/^(?:[•\-–*·]\s*|\d{1,2}[.)]\s+)/, "").replace(/\s+/g, " ").trim();
+          const words = t.split(" ");
+          const letters = (t.match(/\p{L}/gu) || []).length / Math.max(1, t.length);
+          if (t.length >= 35 && t.length <= 340 && words.length >= 6 && letters > 0.55)
+            sents.push({ text: /[.!?]$/.test(t) ? t : t + ".", doc: f.name, loc: sec.location, topic: heading || docTitle(f.name), fi, li: i * 100 + k, sec });
+        });
+      });
     });
-  }));
+  });
   return sents;
 }
+
+const DETERMINER = /^(el|la|los|las|un|una|unos|unas|del|al|su|sus|este|esta|estos|estas|ese|esa|the|a|an)$/i;
+const FEM = /^(la|las|una|unas|esta|estas|esa)$/i, MASC = /^(el|los|un|unos|del|al|este|estos|ese)$/i;
+// Sustantivos genéricos que no sirven como concepto preguntado ni como opción.
+const GENERIC = new Set("parte partes paso pasos zona zonas material materiales toma forma formas tipo tipos caso casos vez veces manera modo lado nivel niveles mayor menor mitad miles cantidad número números periodo período símbolo resto conjunto ejemplo ejemplos punto puntos cosa cosas aspecto aspectos elemento elementos proceso procesos sistema función funciones región regiones grupo grupos base informacion información lugar momento tiempo año años día días".split(" ").map(normalize));
+// Adverbios, gerundios y participios no son conceptos que preguntar.
+const NOT_CONCEPT = /(mente|ando|iendo)$|^.{4,}(ado|ada|ados|adas|ido|ida|idos|idas)$/i;
+
 function termsOf(text) {
   const tk = tokens(text), out = [];
   for (let i = 0; i < tk.length; i++) {
@@ -584,22 +627,37 @@ function termsOf(text) {
   return out;
 }
 function termIndex(corpus) {
-  const df = new Map(), best = new Map();
+  const df = new Map(), best = new Map(), nouny = new Set(), gender = new Map(), midCaps = new Set(), subjects = new Set();
   corpus.forEach((s) => {
     s.terms = [...new Set(termsOf(s.text))];
     s.terms.forEach((t) => { const k = normalize(t); df.set(k, (df.get(k) || 0) + 1); });
+    // Un término precedido por un artículo se comporta como sustantivo; el artículo indica su género.
+    const tk = tokens(s.text);
+    tk.forEach((w, i) => {
+      if (i > 0 && /^\p{Lu}/u.test(w)) { midCaps.add(normalize(w)); if (tk[i + 1]) midCaps.add(normalize(w + " " + tk[i + 1])); }
+      if (i === 0 || !DETERMINER.test(tk[i - 1])) return;
+      for (const t of [w, tk[i + 1] ? w + " " + tk[i + 1] : null]) {
+        if (!t) continue;
+        const k = normalize(t);
+        nouny.add(k);
+        if (i === 1) subjects.add(k); // «La mitocondria es…»: el concepto es sujeto de la oración
+        if (FEM.test(tk[i - 1])) gender.set(k, "f"); else if (MASC.test(tk[i - 1])) gender.set(k, "m");
+      }
+    });
   });
-  // Un par de palabras solo cuenta como concepto si se repite en el material o es un nombre propio.
-  const isConcept = (t) => !t.includes(" ") || (df.get(normalize(t)) || 0) >= 2 || t.split(" ").every((w) => /^\p{Lu}/u.test(w));
+  const isConcept = (t) => (!t.includes(" ") || (df.get(normalize(t)) || 0) >= 2 || t.split(" ").every((w) => /^\p{Lu}/u.test(w)))
+    && !(!t.includes(" ") && !/^\p{Lu}/u.test(t) && NOT_CONCEPT.test(t)) && !GENERIC.has(normalize(t));
   corpus.forEach((s, si) => {
     s.terms = s.terms.filter(isConcept);
     s.terms.forEach((t) => { const k = normalize(t); if (!best.has(k)) best.set(k, { term: t, fi: s.fi, si }); });
   });
+  // Una mayúscula al inicio de frase no hace nombre propio («Durante…»); a mitad de frase, sí.
+  const isNoun = (t) => nouny.has(normalize(t)) || /\d/.test(t) || (/^\p{Lu}/u.test(t) && midCaps.has(normalize(t)));
   const score = (t) => {
     const k = normalize(t), d = df.get(k) || 1;
-    return Math.log(1 + d) * (d > 10 ? 0.4 : 1) + (t.includes(" ") ? 0.6 : 0) + (/^\p{Lu}/u.test(t) ? 0.35 : 0) + (/\d/.test(t) ? 0.5 : 0) + Math.min(t.length, 16) / 14;
+    return Math.log(1 + d) * (d > 10 ? 0.4 : 1) + (t.includes(" ") ? 0.6 : 0) + (/^\p{Lu}/u.test(t) ? 0.35 : 0) + (/\d/.test(t) ? 0.5 : 0) + (isNoun(t) ? 1.2 : 0) + Math.min(t.length, 16) / 14;
   };
-  return { df, score, all: [...best.values()].map((b) => ({ ...b, k: normalize(b.term), s: score(b.term) })) };
+  return { df, score, isNoun, isSubject: (t) => subjects.has(normalize(t)), gender: (t) => gender.get(normalize(t)) || null, all: [...best.values()].map((b) => ({ ...b, k: normalize(b.term), s: score(b.term) })) };
 }
 function numericVariants(term) {
   const m = term.match(/-?\d+(?:[.,]\d+)?/);
@@ -608,13 +666,16 @@ function numericVariants(term) {
   const n = parseFloat(raw.replace(",", "."));
   const isInt = Number.isInteger(n);
   const fmt = (x) => (isInt ? String(Math.round(x)) : x.toFixed((raw.split(/[.,]/)[1] || "").length).replace(".", dec));
-  const cands = new Set([n + 1, n - 1, n * 1.1, n * 0.9, n + 10, n * 2, n / 2].map(fmt));
-  if (raw.length >= 2 && isInt) cands.add(raw.slice(0, -2) + raw.slice(-1) + raw.slice(-2, -1));
+  const year = isInt && n >= 1000 && n <= 2100;
+  const cands = new Set((year ? [n + 1, n - 1, n + 2, n - 3, n + 5, n - 10] : [n + 1, n - 1, n * 1.1, n * 0.9, n + 10, n * 2, n / 2]).map(fmt));
+  if (!year && raw.length >= 2 && isInt) cands.add(raw.slice(0, -2) + raw.slice(-1) + raw.slice(-2, -1));
   cands.delete(raw);
   return [...cands].filter((x) => x && x !== "NaN" && !x.startsWith("-") === !raw.startsWith("-")).map((x) => term.replace(raw, x));
 }
 function pickKeyTerm(s, idx, diff, exclude = []) {
-  let cands = s.terms.filter((t) => !exclude.includes(t) && s.text.indexOf(t) >= 0 && s.text.indexOf(t) === s.text.lastIndexOf(t));
+  const properPairs = s.terms.filter((t) => t.includes(" ") && t.split(" ").every((w) => /^\p{Lu}/u.test(w)));
+  let cands = s.terms.filter((t) => !exclude.includes(t) && s.text.indexOf(t) >= 0 && s.text.indexOf(t) === s.text.lastIndexOf(t) && idx.isNoun(t)
+    && !(!t.includes(" ") && properPairs.some((p) => p.split(" ").includes(t))));
   if (!cands.length) return null;
   if (diff === "jacqueline") { const d = cands.filter((t) => /\d|^\p{Lu}/u.test(t) && s.text.indexOf(t) > 0); if (d.length) cands = d; }
   if (diff === "easy" && DEFINITION.test(s.text)) {
@@ -623,49 +684,69 @@ function pickKeyTerm(s, idx, diff, exclude = []) {
   }
   return cands.sort((a, b) => idx.score(b) - idx.score(a))[0];
 }
+/** Distractores que encajan en la misma frase: mismo tipo (número/nombre propio/común), número y género. */
 function distractors(term, s, idx, n, diff) {
-  const k = normalize(term), numeric = /\d/.test(term), multi = term.includes(" ");
-  // Un distractor creíble comparte forma con el término: nombre propio o común, singular o plural.
+  const k = normalize(term);
+  if (/\d/.test(term)) return [...new Set(shuffle(numericVariants(term)))].slice(0, n);
   const proper = (t) => /^\p{Lu}/u.test(t) && !/^\p{Lu}+$/u.test(t);
   const plural = (t) => /s$/i.test(t.split(" ")[0]);
-  const shaped = (c) => proper(c.term) === proper(term) && plural(c.term) === plural(term);
-  const base = idx.all.filter((c) => c.k !== k && /\d/.test(c.term) === numeric && c.term.includes(" ") === multi
+  const g = idx.gender(term);
+  // Mismo documento, misma forma y el mismo uso del artículo: «el Código Civil» no se mezcla con «Napoleón».
+  const base = idx.all.filter((c) => c.k !== k && c.fi === s.fi && !/\d/.test(c.term) && c.term.includes(" ") === term.includes(" ") && idx.isNoun(c.term)
+    && proper(c.term) === proper(term) && plural(c.term) === plural(term) && !GENERIC.has(c.k)
     && !k.includes(c.k) && !c.k.includes(k) && !normalize(s.text).includes(c.k) && Math.abs(c.term.length - term.length) <= Math.max(6, term.length * 0.7));
-  let pool = base.filter(shaped);
-  if (pool.length < n) pool = [...pool, ...base.filter((c) => !shaped(c))];
+  let pool = base.filter((c) => idx.gender(c.term) === g);
+  if (pool.length < n && !proper(term)) pool = [...pool, ...base.filter((c) => !pool.includes(c) && (!g || !idx.gender(c.term)))];
   if (diff === "hard" || diff === "jacqueline") pool.sort((a, b) => (b.fi === s.fi) - (a.fi === s.fi) || Math.abs(a.s - idx.score(term)) - Math.abs(b.s - idx.score(term)));
   else pool = shuffle(pool);
-  const out = [];
-  if (numeric) out.push(...shuffle(numericVariants(term)));
-  for (const c of pool.slice(0, 14)) out.push(c.term);
-  if (out.length < n) for (const c of shuffle(idx.all)) if (c.k !== k && !out.includes(c.term)) out.push(c.term);
-  return [...new Set(out.filter((x) => normalize(x) !== k))].slice(0, n);
+  return [...new Set(pool.map((c) => c.term))].slice(0, n);
 }
 const replaceOnce = (text, term, by) => { const i = text.indexOf(term); return i < 0 ? text : text.slice(0, i) + by + text.slice(i + term.length); };
+/** Versiones falsas pero bien formadas de una oración verdadera (un dato concreto cambia). */
 function falsify(s, term, idx, diff) {
   const options = [];
-  // Para falsear una oración el reemplazo debe concordar en número (si no, la frase delata la trampa).
-  const plural = (t) => /s$/i.test(t.split(" ")[0]);
-  const swap = distractors(term, s, idx, 6, diff).find((x) => plural(x) === plural(term));
+  // Solo se cambia el sujeto de la oración por otro concepto que también es sujeto en el material
+  // («La ósmosis es…» → «La mitosis es…»). Cambiar nombres propios o complementos produce frases absurdas.
+  const isSubjectHere = !/^\p{Lu}/u.test(term) && idx.isSubject(term) && s.text.indexOf(term) < 25;
+  const swap = isSubjectHere ? distractors(term, s, idx, 8, diff).find((x) => idx.isSubject(x)) : null;
   if (swap) options.push(replaceOnce(s.text, term, swap));
+  const num = s.text.match(/\d+(?:[.,]\d+)?/);
+  if (num) {
+    // La cifra nueva no puede repetir otra cifra de la misma oración («entre 1794 y 1794»).
+    const present = new Set(s.text.match(/\d+(?:[.,]\d+)?/g));
+    const v = numericVariants(num[0]).find((x) => !present.has(x));
+    if (v) options.push(replaceOnce(s.text, num[0], v));
+  }
+  if (/\bno\s+(es|son|se|tiene|tienen|puede|pueden|debe|deben|requiere|requieren)\b/i.test(s.text)) options.push(s.text.replace(/\bno\s+/i, ""));
+  else if (/\s(es|son)\s/.test(s.text)) options.push(s.text.replace(/\s(es|son)\s/, " no $1 "));
   if (diff === "hard" || diff === "jacqueline") {
-    const num = s.text.match(/\d+(?:[.,]\d+)?/);
-    if (num) { const v = numericVariants(num[0])[0]; if (v) options.push(replaceOnce(s.text, num[0], v)); }
-    if (/\b(no)\s+(es|son|se|tiene|tienen|puede|pueden|debe|deben)\b/i.test(s.text)) options.push(s.text.replace(/\bno\s+/i, ""));
-    else if (/\b(es|son)\b/.test(s.text)) options.push(s.text.replace(/\b(es|son)\b/, "no $1"));
-    if (/\b(generalmente|normalmente|a menudo|suele|suelen|puede|pueden)\b/i.test(s.text)) options.push(s.text.replace(/\b(generalmente|normalmente|a menudo)\b/i, "siempre").replace(/\b(suele|suelen|puede|pueden)\b/i, (m) => (m.endsWith("n") ? "siempre deben" : "siempre debe")));
+    if (/\b(generalmente|normalmente|a menudo)\b/i.test(s.text)) options.push(s.text.replace(/\b(generalmente|normalmente|a menudo)\b/i, "siempre"));
+    if (/\b(puede|pueden)\b/.test(s.text)) options.push(s.text.replace(/\b(puede|pueden)\b/, (m) => (m === "pueden" ? "nunca pueden" : "nunca puede")));
   }
   return [...new Set(options.filter((o) => o && o !== s.text))];
 }
 const cite = (s) => `Según «${s.doc}» · ${s.loc}: “${s.text}”`;
 function neighbor(s, corpus) {
-  const next = corpus.find((x) => x.sec === s.sec && x.li === s.li + 1);
+  const next = corpus.find((x) => x.sec === s.sec && x.li > s.li && x.li < s.li + 200 && x.text !== s.text);
   return next ? `${s.text} ${next.text}` : s.text;
+}
+
+/** Revisión final de sentido: descarta preguntas mal formadas, venga de la IA o de las reglas. */
+function saneQuestion(q) {
+  if (!q || !q.prompt || q.prompt.replace(new RegExp(BLANK, "g"), "").trim().length < 12) return false;
+  if (q.type === "multiple_choice") {
+    const n = q.options.map(normalize);
+    if (n.some((x) => !x) || new Set(n).size !== n.length) return false;
+  }
+  if (q.type === "true_false" && q.prompt.includes(BLANK)) return false;
+  if (q.type === "fill_blank" && q.answers.some((v) => !v.length || v.every((x) => isStop(x) || normalize(x).length < 2))) return false;
+  if (q.type === "open" && (!q.modelAnswer || q.modelAnswer.length < 20)) return false;
+  return true;
 }
 
 function generateLocal(files, cfg) {
   const corpus = buildCorpus(files);
-  if (corpus.length < 4) throw new Error("No hay suficiente texto en los documentos para generar preguntas en modo demo. Añade más material o usa el motor IA de Claude.");
+  if (corpus.length < 4) throw new Error("No hay suficiente texto en los documentos para generar preguntas en modo demo. Añade más material o usa un modo con IA.");
   const idx = termIndex(corpus);
   const d = cfg.difficulty;
   const prefScore = (s) => (d === "easy" ? (DEFINITION.test(s.text) ? 2 : 0) - s.text.length / 300
@@ -685,9 +766,9 @@ function generateLocal(files, cfg) {
     for (const s of candidates()) {
       const term = pickKeyTerm(s, idx, d, usedTerms.get(s) || []);
       if (!term) continue;
-      const base = { id: uid(), type, explanation: cite(s), source: { doc: s.doc, loc: s.loc } };
+      const base = { id: uid(), type, topic: s.topic, explanation: cite(s), source: { doc: s.doc, loc: s.loc } };
       if (type === "multiple_choice") {
-        if ((d === "hard" || d === "jacqueline") && Math.random() < 0.5) {
+        if (d === "hard" || d === "jacqueline") {
           const falses = falsify(s, term, idx, d);
           if (falses.length >= nOpts - 1) {
             const opts = shuffle([s.text, ...falses.slice(0, nOpts - 1)]);
@@ -702,28 +783,48 @@ function generateLocal(files, cfg) {
           }
         }
       } else if (type === "true_false") {
-        const truth = Math.random() < 0.5;
-        if (truth) made = { ...base, prompt: s.text, answerBool: true };
-        else { const f = falsify(s, term, idx, d)[d === "jacqueline" ? 1 : 0] || falsify(s, term, idx, d)[0]; if (f) made = { ...base, prompt: f, answerBool: false, explanation: `La afirmación original dice: ${cite(s)}` }; }
+        const falses = falsify(s, term, idx, d);
+        if (Math.random() < 0.5 || !falses.length) made = { ...base, prompt: s.text, answerBool: true };
+        else made = { ...base, prompt: falses[d === "jacqueline" && falses.length > 1 ? 1 : 0], answerBool: false, explanation: `La afirmación es falsa. ${cite(s)}` };
       } else if (type === "fill_blank") {
         let prompt = replaceOnce(s.text, term, BLANK), answers = [[term]];
         if (d === "jacqueline") {
-          const second = s.terms.find((t) => t !== term && !t.includes(term) && !term.includes(t) && prompt.includes(t) && /\d|^\p{Lu}/u.test(t));
+          const second = s.terms.find((t) => t !== term && !t.includes(term) && !term.includes(t) && prompt.includes(t) && idx.isNoun(t) && /\d|^\p{Lu}/u.test(t));
           if (second) { const i1 = s.text.indexOf(term), i2 = s.text.indexOf(second); prompt = replaceOnce(prompt, second, BLANK); answers = i1 < i2 ? [[term], [second]] : [[second], [term]]; }
         }
         made = { ...base, prompt, answers };
       } else if (type === "open") {
-        const others = ranked.filter((x) => x.fi !== s.fi && !used.has(x));
-        if (d === "jacqueline" && others.length) {
-          const o = others[0], t2 = pickKeyTerm(o, idx, d) || o.terms[0];
-          used.add(o, t2);
-          made = { ...base, prompt: `Relaciona «${term}» (${s.doc}) con «${t2}» (${o.doc}): ¿qué conexión, diferencia o implicación conjunta encuentras? Sé preciso con los detalles.`, modelAnswer: `${neighbor(s, corpus)}\n\n${neighbor(o, corpus)}`, keyPoints: [term, t2, ...s.terms.filter((t) => t !== term).slice(0, 2)], explanation: `${cite(s)}\n${cite(o)}` };
-        } else {
-          const stem = d === "easy" ? `Explica con tus palabras qué dice el material sobre «${term}».` : d === "medium" ? `¿Qué relación tiene «${term}» con el resto del tema? Explícalo con lo visto en el material.` : `Analiza «${term}»: ¿por qué es importante según el material y qué consecuencias o aplicaciones tiene?`;
-          const model = neighbor(s, corpus);
-          made = { ...base, prompt: stem, modelAnswer: model, keyPoints: [...new Set(termsOf(model).filter((t) => !t.includes(" ")).sort((a, b) => idx.score(b) - idx.score(a)))].slice(0, 5) };
+        if (/\d/.test(term)) continue;
+        // «Salvación Pública» en «Comité de Salvación Pública» es parte de un nombre más largo: no sirve como tema de desarrollo.
+        if (/^\p{Lu}/u.test(term) && /\b(de|del)\s*$/i.test(s.text.slice(0, s.text.indexOf(term)))) continue;
+        const stemOf = (t) => normalize(t).replace(/(es|s)$/, "");
+        // Concepto compartido: un sustantivo con artículo (no un adjetivo como «Francesa») presente en ambas oraciones.
+        const sharedTerm = (x) => x.terms.find((t) => !t.includes(" ") && idx.gender(t) && !GENERIC.has(normalize(t)) && !/\d/.test(t) && s.terms.some((u) => stemOf(u) === stemOf(t)));
+        const model = neighbor(s, corpus);
+        if (d === "jacqueline") {
+          // Correlación: lo que dos apartados distintos del mismo documento dicen sobre un mismo concepto.
+          const o = ranked.find((x) => x !== s && x.fi === s.fi && x.topic !== s.topic && !used.has(x) && sharedTerm(x));
+          if (o) {
+            const c = sharedTerm(o);
+            used.add(o, c);
+            made = { ...base, prompt: `Los apartados «${s.topic}» y «${o.topic}» hablan de «${c}». Relaciona lo que dice cada uno: ¿cómo se conectan o complementan ambas ideas según el material? Sé preciso con los datos.`,
+              modelAnswer: `${model}\n\n${neighbor(o, corpus)}`,
+              keyPoints: [...new Set([c, term, ...o.terms.filter((t) => !t.includes(" ") && idx.isNoun(t) && !GENERIC.has(normalize(t))).slice(0, 2)])].slice(0, 4),
+              explanation: `${cite(s)}\n${cite(o)}` };
+          }
+        }
+        if (!made) {
+          const isDef = DEFINITION.test(s.text) && s.text.indexOf(term) < 40;
+          const person = /^\p{Lu}/u.test(term) && !idx.gender(term);
+          const sameAsTopic = normalize(s.topic).includes(normalize(term));
+          const stem = person ? (d === "easy" ? `Según el material, ¿quién fue «${term}» y qué hizo?` : `¿Qué papel tuvo «${term}» según el material y por qué fue relevante?`)
+            : d === "easy" ? (isDef ? `Según el material, ¿qué es «${term}»?` : `Explica con tus palabras qué dice el material sobre «${term}».`)
+            : d === "medium" ? (sameAsTopic ? `Resume lo que el material explica sobre «${term}».` : `Explica qué papel cumple «${term}» dentro del tema «${s.topic}», con lo que indica el material.`)
+            : `Analiza «${term}»: ¿por qué es importante según el material y qué consecuencias o aplicaciones tiene?`;
+          made = { ...base, prompt: stem, modelAnswer: model, keyPoints: [...new Set(termsOf(model).filter((t) => !t.includes(" ") && idx.isNoun(t)).sort((a, b) => idx.score(b) - idx.score(a)))].slice(0, 5) };
         }
       }
+      if (made && (!saneQuestion(made) || questions.some((q) => q.prompt === made.prompt))) made = null;
       if (made) { used.add(s, term); break; }
     }
     if (made) questions.push(made);

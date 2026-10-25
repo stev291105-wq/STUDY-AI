@@ -64,7 +64,7 @@ async function httpJSON(url, init, provider) {
   if (res.ok) return body;
   const detail = body?.error?.message || body?.message || "";
   if (res.status === 401 || res.status === 403 || /api key|apikey|api_key|unauthor/i.test(detail)) throw { code: "auth", message: AI_ERRORS.auth };
-  if (res.status === 429) throw { code: "rate_limited", message: AI_ERRORS.rate_limited };
+  if (res.status === 429) throw provider === "gemini" ? { code: "gemini_quota" } : { code: "rate_limited", message: AI_ERRORS.rate_limited };
   if (res.status === 404) throw { code: "model", message: AI_ERRORS.model };
   if (res.status === 413) throw { code: "prompt_too_large", message: AI_ERRORS.prompt_too_large };
   throw { code: "api", message: `${PROVIDERS[provider].label} respondió ${res.status}${detail ? ": " + detail.slice(0, 220) : ""}` };
@@ -111,7 +111,7 @@ function pickModels(provider, models) {
 function apiKeyAI(cfg) {
   const P = PROVIDERS[cfg.provider];
   return {
-    kind: "api", label: P.short, budget: P.budget, perCall: P.perCall, maxImages: cfg.models?.vision ? P.maxImages : 0,
+    kind: "api", label: cfg.label || P.short, budget: P.budget, perCall: P.perCall, maxImages: cfg.models?.vision ? P.maxImages : 0,
     async callJSON(prompt, { images } = {}) {
       if (!cfg.key) throw { code: "no_key" };
       const imgs = images?.length ? await Promise.all([...images].map(blobToBase64)) : [];
@@ -162,3 +162,34 @@ const apiSettings = {
     try { return (remember ? localStorage : sessionStorage).getItem("smai:apikey:" + provider) || ""; } catch { return ""; }
   },
 };
+
+// ------------------------------------------------------------------ With Gemini (cuenta de Google + key gratuita de AI Studio)
+// La key vive SOLO en este navegador: sessionStorage por defecto, localStorage si el usuario marca «Recordar».
+// Nunca se envía a ningún servidor propio (no existe) ni se escribe en la consola.
+const GEMINI_KEY = "smai:gemini:key";
+const geminiAccount = {
+  load() {
+    const remember = pref.get("smai:gemini:remember", false);
+    let key = "";
+    try { key = (remember ? localStorage : sessionStorage).getItem(GEMINI_KEY) || ""; } catch {}
+    return { key, remember, model: key ? pref.get("smai:gemini:model", "") : "" };
+  },
+  save({ key, remember, model }) {
+    pref.set("smai:gemini:remember", !!remember);
+    pref.set("smai:gemini:model", model || "");
+    try {
+      localStorage.removeItem(GEMINI_KEY); sessionStorage.removeItem(GEMINI_KEY);
+      if (key) (remember ? localStorage : sessionStorage).setItem(GEMINI_KEY, key);
+    } catch {}
+  },
+  clear() { this.save({ key: "", remember: false, model: "" }); },
+};
+/** Valida la key listando los modelos de la cuenta y elige un único modelo Flash disponible. */
+async function connectGemini(key) {
+  const models = await listModels("gemini", key);
+  const flash = models.map((m) => m.id).filter((id) => /flash/i.test(id) && !/tts|image|audio|live|embed/i.test(id));
+  const stable = flash.filter((id) => !/lite|thinking|exp|preview|8b/i.test(id));
+  const pick = [...(stable.length ? stable : flash)].sort((a, b) => versionOf(b) - versionOf(a))[0];
+  if (!pick) throw { code: "api", message: "Tu cuenta de Google no tiene ningún modelo Gemini Flash disponible." };
+  return pick;
+}

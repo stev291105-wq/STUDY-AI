@@ -28,9 +28,10 @@ function Brand({ small }) {
 
 // ================================================================ acceso
 const USE_MODES = [
-  ["Demo local", "Sin IA: todo ocurre en tu navegador", "butter"],
+  ["With Gemini · recomendado", "Entras con tu cuenta de Google y usas Gemini gratis", "sky"],
   ["Cuenta de Claude", "Inicias sesión en Claude y usa tu propia cuenta", "lav"],
-  ["Tu API key", "Gemini, Llama (Groq) o Grok (xAI)", "sky"],
+  ["Demo local", "Sin IA: todo ocurre en tu navegador", "butter"],
+  ["Tu API key", "Gemini, Llama (Groq) o Grok (xAI)", "peach"],
 ];
 
 function LoginScreen({ caps, onChoose, notice }) {
@@ -51,7 +52,7 @@ function LoginScreen({ caps, onChoose, notice }) {
           <span className="chip jq-badge" style=${{ border: 0 }}>♛ Nivel Jacqueline</span>
         </div>
         <div className="mt-auto flex flex-col gap-2">
-          <div className="eyebrow">Tres formas de usarlo</div>
+          <div className="eyebrow">Cuatro formas de usarlo</div>
           ${USE_MODES.map(([t, d, tone], i) => html`<div key=${t} className="flex items-center gap-3 rounded-xl p-2.5" style=${{ background: "rgb(var(--surface-2))" }}>
             <span className=${"mono font-bold w-7 h-7 grid place-items-center rounded-md shrink-0 tone-" + tone}>${i + 1}</span>
             <span className="min-w-0"><b>${t}</b><span className="block text-xs" style=${muted}>${d}</span></span>
@@ -77,11 +78,16 @@ function LoginScreen({ caps, onChoose, notice }) {
               <${Icon} name="arrow" />
             </button>
             <p className="text-sm -mt-2" style=${muted}>Usas tu propia cuenta de Claude (la de tu correo) para la IA, y tu historial se guarda en la nube.</p>`
-          : html`<a className="btn btn-primary w-full justify-between py-4" href=${LINKS.claudeApp} target="_blank" rel="noopener">
+          : html`<button className="btn btn-primary w-full justify-between py-4" onClick=${() => { pref.set("smai:engine", "gemini"); onChoose({ mode: "guest", nick: nick.trim(), via: "gemini" }); }}>
+              <span className="flex items-center gap-3"><${Icon} name="spark" /><span className="flex flex-col items-start"><span>Entrar con Gemini <span className="pill tone-butter !text-[10px] ml-1">★ Recomendado</span></span><span className="text-xs font-normal opacity-90">Con tu cuenta de Google · gratis</span></span></span>
+              <${Icon} name="arrow" />
+            </button>
+            <p className="text-sm -mt-2" style=${muted}>Inicias sesión en Google AI Studio, creas tu key gratuita y la pegas: StudyMaster usará tu propio Gemini.</p>
+            <a className="btn btn-ghost w-full justify-between py-4" href=${LINKS.claudeApp} target="_blank" rel="noopener">
               <span className="flex items-center gap-3"><${Icon} name="user" /><span className="flex flex-col items-start"><span>Entrar con mi cuenta de Claude</span><span className="text-xs font-normal opacity-90">Se abre en claude.ai · inicias sesión con tu correo</span></span></span>
               <${Icon} name="arrow" />
             </a>
-            <p className="text-sm -mt-2" style=${muted}>StudyMaster se abre dentro de Claude: la IA funciona con tu propia cuenta de Claude, sin API key, y tu historial queda guardado en la nube.</p>`}
+            <p className="text-sm -mt-2" style=${muted}>StudyMaster se abre dentro de Claude: la IA funciona con tu propia cuenta de Claude y tu historial queda guardado en la nube.</p>`}
 
         <div className="flex items-center gap-3 text-xs eyebrow"><span className="flex-1 h-px" style=${{ background: "rgb(var(--line-soft))" }}></span>o<span className="flex-1 h-px" style=${{ background: "rgb(var(--line-soft))" }}></span></div>
 
@@ -89,7 +95,7 @@ function LoginScreen({ caps, onChoose, notice }) {
           <label htmlFor="nick" className="text-sm font-bold">Nombre para mostrar <span className="font-normal" style=${muted}>(opcional)</span></label>
           <input id="nick" className="field" placeholder="Ej. Ana · 2º de Bachillerato" value=${nick} maxLength="40" onInput=${(e) => setNick(e.target.value)} />
           <button type="submit" className="btn btn-ghost w-full py-3"><${Icon} name="user" /> ${IN_CLAUDE ? "Entrar como invitado" : "Usar en este navegador"}</button>
-          <p className="text-sm" style=${muted}>${IN_CLAUDE ? "Como invitado, el historial se guarda solo en este navegador." : "Usa el modo demo o tu propia API key de Gemini, Llama o Grok. El historial se guarda en este navegador."}</p>
+          <p className="text-sm" style=${muted}>${IN_CLAUDE ? "Como invitado, el historial se guarda solo en este navegador." : "Entra sin IA (modo demo) o con tu propia API key de Gemini, Llama o Grok. El historial se guarda en este navegador."}</p>
         </form>
       </section>
     </div>
@@ -154,7 +160,7 @@ function Sidebar({ auth, caps, storeKind, engineLabel, sessions, currentId, busy
 
 // ================================================================ cabecera con pasos
 const STEPS = [["material", "Material"], ["config", "Configurar"], ["quiz", "Test"], ["results", "Resultados"]];
-function Header({ session, step, enabled, onStep, onRename, onMenu }) {
+function Header({ session, step, enabled, onStep, onRename, onMenu, modeLabel, modeKind }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(session.title);
   useEffect(() => setVal(session.title), [session.title]);
@@ -166,6 +172,7 @@ function Header({ session, step, enabled, onStep, onRename, onMenu }) {
       : html`<h1 className="text-[1.6rem] md:text-[1.9rem] font-extrabold leading-tight truncate min-w-0">${session.title}</h1>
         <button className="p-1.5 rounded-md opacity-60 hover:opacity-100" onClick=${() => setEditing(true)} aria-label="Renombrar sesión"><${Icon} name="pencil" size=${16} /></button>`}
     </div>
+    <div className="flex flex-wrap items-center gap-2">
     <ol className="flex flex-wrap gap-2" aria-label="Pasos">
       ${STEPS.map(([key, label], i) => {
         const active = step === key, ok = enabled[key];
@@ -175,6 +182,10 @@ function Header({ session, step, enabled, onStep, onRename, onMenu }) {
           <span className="mono text-xs">${i + 1}</span>${label}</button></li>`;
       })}
     </ol>
+    <span className=${"pill border-2 ml-auto tone-" + ({ gemini: "sky", claude: "lav", api: "peach", demo: "butter" }[modeKind] || "butter")} style=${{ borderColor: "rgb(var(--line))" }} title="Modo activo" aria-label=${"Modo activo: " + modeLabel}>
+      <span className="w-2 h-2 rounded-full" style=${{ background: modeKind === "demo" ? "rgb(var(--muted))" : "rgb(var(--ok))" }}></span>${modeLabel}
+    </span>
+    </div>
   </header>`;
 }
 
@@ -256,18 +267,91 @@ function ApiPanel({ api, setApi }) {
   </div>`;
 }
 
-function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady }) {
+// Paso numerado del panel guiado (fuera del panel para que el campo de la key no se recree al escribir).
+const GuideStep = ({ n, done, children }) => html`<li className="flex gap-3">
+    <span className=${"mono font-bold w-7 h-7 shrink-0 grid place-items-center rounded-md border-2 " + (done ? "tone-mint" : "")} style=${{ borderColor: "rgb(var(--line))", background: done ? undefined : "rgb(var(--surface))" }}>${done ? "✓" : n}</span>
+    <div className="min-w-0 flex-1 flex flex-col gap-2 pt-0.5">${children}</div>
+</li>`;
+
+function GeminiPanel({ gem, setGem }) {
+  const [draft, setDraft] = useState(gem.key);
+  const [show, setShow] = useState(false);
+  const [state, setState] = useState(gem.key && gem.model ? { ok: true } : null);
+  const timer = useRef(null), seq = useRef(0);
+  // Valida en cuanto se pega o escribe la key (con una pequeña pausa para no consultar a cada tecla).
+  const validate = (key, remember) => {
+    clearTimeout(timer.current);
+    const k = key.trim();
+    if (!k) { setState(null); return; }
+    if (k.length < 20) { setState({ ok: false, text: AI_ERRORS.gemini_invalid }); return; }
+    const my = ++seq.current;
+    setState({ checking: true });
+    timer.current = setTimeout(async () => {
+      try {
+        const model = await connectGemini(k);
+        if (my !== seq.current) return;
+        setGem({ key: k, remember, model });
+        setState({ ok: true });
+      } catch (e) {
+        if (my !== seq.current) return;
+        setGem({ key: "", remember, model: "" });
+        setState({ ok: false, text: e?.code === "auth" ? AI_ERRORS.gemini_invalid : e?.code === "gemini_quota" ? AI_ERRORS.gemini_quota : e?.message || aiErrorText(e) });
+      }
+    }, 450);
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const connected = state?.ok && gem.key;
+  return html`<div className="flex flex-col gap-3 mt-2 pt-3 border-t" style=${{ borderColor: "rgb(var(--line-soft))", cursor: "default" }} onClick=${(e) => e.stopPropagation()} onKeyDown=${(e) => e.stopPropagation()}>
+    ${connected
+      ? html`<div className="rounded-xl p-3 tone-mint flex flex-col gap-2" role="status">
+          <b>Conectado con tu cuenta de Google ✓</b>
+          <span className="text-sm">Modelo: <span className="mono">${gem.model}</span> · la key se guarda ${gem.remember ? "en este navegador" : "solo durante esta sesión"}.</span>
+          <button className="btn btn-ghost !py-1.5 text-sm self-start" onClick=${() => { seq.current++; setGem({ key: "", remember: false, model: "" }); setDraft(""); setState(null); }}>Desconectar</button>
+        </div>`
+      : html`<ol className="flex flex-col gap-4">
+          <${GuideStep} n="1">
+            <b className="text-sm">Inicia sesión con tu cuenta de Google</b>
+            <a className="btn btn-primary !py-2 text-sm self-start" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Iniciar sesión en Google AI Studio ↗</a>
+          <//>
+          <${GuideStep} n="2">
+            <b className="text-sm">Pulsa «Create API key» (es gratis) y cópiala</b>
+          <//>
+          <${GuideStep} n="3" done=${state?.ok}>
+            <label htmlFor="gemini-key" className="text-sm font-bold">Pega tu key aquí</label>
+            <div className="flex gap-2">
+              <input id="gemini-key" className="field mono !text-sm" type=${show ? "text" : "password"} autoComplete="off" spellCheck="false" placeholder="AIza…"
+                value=${draft} onInput=${(e) => { setDraft(e.target.value); validate(e.target.value, gem.remember); }} />
+              <button className="btn btn-ghost !px-3" onClick=${() => setShow((s) => !s)} aria-label=${show ? "Ocultar key" : "Ver key"}>${show ? "Ocultar" : "Ver"}</button>
+            </div>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked=${gem.remember} onChange=${(e) => { setGem({ ...gem, remember: e.target.checked }); if (draft.trim()) validate(draft, e.target.checked); }} /> Recordar en este navegador</label>
+            ${state?.checking && html`<p className="text-sm font-bold flex items-center gap-2" style=${{ color: "rgb(var(--accent))" }}><${Spinner} /> Comprobando tu key…</p>`}
+            ${state && !state.ok && !state.checking && html`<p className="rounded-lg p-2.5 text-sm font-bold tone-rose" role="alert">✗ ${state.text}</p>`}
+          <//>
+        </ol>`}
+    <p className="text-xs" style=${{ color: "rgb(var(--muted))" }}>Tu key queda solo en este navegador y las solicitudes van directo de tu navegador a Google. StudyMaster no tiene servidor y nunca la guarda ni la registra.</p>
+  </div>`;
+}
+
+function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady, gem, setGem, geminiReady }) {
   return html`<section className="card p-5 flex flex-col gap-3">
     <div><div className="eyebrow">Modo de uso</div><h3 className="text-lg font-bold">¿Quién lee y pregunta?</h3></div>
-    <${ModeCard} id="demo" num="1" active=${mode === "demo"} available=${true} onPick=${onMode}
-      title="Demo local" desc="Sin IA: extracción con PDF.js y Mammoth, OCR con Tesseract y preguntas por reglas, todo en tu navegador."
-      tags=${["sin cuenta", "privado", "texto impreso"]} />
+    <${ModeCard} id="gemini" num="1" active=${mode === "gemini"} available=${!IN_CLAUDE} onPick=${onMode}
+      title=${html`With Gemini <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
+      desc=${IN_CLAUDE ? "Disponible en la versión web: este visor de Claude bloquea conexiones a otros servicios." : "Entra con tu cuenta de Google y usa Gemini gratis: lee imágenes y letra a mano, redacta preguntas y valida tus respuestas."}
+      tags=${IN_CLAUDE ? [] : ["cuenta de Google", "gratis", "OCR + manuscritos"]}>
+      ${IN_CLAUDE && html`<a className="btn btn-ghost !py-2 text-sm mt-2 self-start" href=${LINKS.web} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}>Abrir versión web ↗</a>`}
+      ${!IN_CLAUDE && mode === "gemini" && html`<${GeminiPanel} gem=${gem} setGem=${setGem} />`}
+      ${!IN_CLAUDE && mode === "gemini" && !geminiReady && html`<p className="text-xs font-bold mt-1 text-peach">Mientras conectas tu cuenta se usa el modo demo.</p>`}
+    <//>
     <${ModeCard} id="claude" num="2" active=${mode === "claude"} available=${claudeOk} onPick=${onMode}
       title="Cuenta de Claude" desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "Inicia sesión en claude.ai para usar tu cuenta.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key."}
       tags=${IN_CLAUDE ? (claudeVision ? ["OCR + manuscritos", "preguntas IA", "validación IA"] : ["preguntas IA", "validación IA"]) : []}>
       ${!IN_CLAUDE && html`<a className="btn btn-ghost !py-2 text-sm mt-2 self-start" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Iniciar sesión en Claude ↗</a>`}
     <//>
-    <${ModeCard} id="api" num="3" active=${mode === "api"} available=${!IN_CLAUDE} onPick=${onMode}
+    <${ModeCard} id="demo" num="3" active=${mode === "demo"} available=${true} onPick=${onMode}
+      title="Demo local" desc="Sin IA: extracción con PDF.js y Mammoth, OCR con Tesseract y preguntas por reglas, todo en tu navegador."
+      tags=${["sin cuenta", "privado", "texto impreso"]} />
+    <${ModeCard} id="api" num="4" active=${mode === "api"} available=${!IN_CLAUDE} onPick=${onMode}
       title="Mi API key" desc=${IN_CLAUDE ? "Disponible en la versión web: este visor de Claude bloquea conexiones a otros servicios." : "Conecta tu key de Google Gemini, Llama (vía Groq) o Grok (xAI)."}
       tags=${IN_CLAUDE ? [] : ["Gemini", "Llama", "Grok"]}>
       ${IN_CLAUDE && html`<a className="btn btn-ghost !py-2 text-sm mt-2 self-start" href=${LINKS.web} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}>Abrir versión web ↗</a>`}
@@ -492,6 +576,7 @@ function QuizStep({ quiz, aiOk, onChoice, onSubmitText, onSelfEval, onAIValidate
         <span className="ml-auto text-xs eyebrow">${q.type === "multiple_choice" || q.type === "true_false" ? "Corrección inmediata" : "Respuesta escrita"}</span>
       </div>
 
+      ${q.topic && html`<div className="flex items-center gap-2 -mb-2"><span className="eyebrow">Temática</span><span className="font-bold text-[15px] truncate" style=${{ fontFamily: "var(--font-display)" }}>${q.topic}</span></div>`}
       ${q.type === "fill_blank"
         ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${"hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1)}
             onInput=${(e) => { const v = [...values]; v[i] = e.target.value; setValues(v); }} onKeyDown=${(e) => { if (e.key === "Enter" && !a) { e.preventDefault(); submitText(); } }} />`}</span>`)}</p>`
@@ -622,7 +707,7 @@ function ResultsStep({ quiz, generating, onRetry, onNewQuestions, onUpload }) {
           return html`<li key=${q.id} className="rounded-2xl border-2 overflow-hidden" style=${{ borderColor: ok ? "rgb(var(--ok))" : a ? "rgb(var(--bad))" : "rgb(var(--line-soft))" }}>
             <button className="w-full text-left p-3 md:p-4 flex items-start gap-3" onClick=${() => toggle(q.id)} aria-expanded=${isOpen}>
               <span className="mono text-sm font-bold w-7 h-7 shrink-0 grid place-items-center rounded-md" style=${{ background: ok ? "rgb(var(--ok))" : a ? "rgb(var(--bad))" : "rgb(var(--surface-2))", color: a ? "rgb(var(--surface))" : "rgb(var(--ink))" }}>${i + 1}</span>
-              <span className="min-w-0 flex-1"><span className=${"chip mr-2 tone-" + MODES[q.type].tone}>${MODES[q.type].label}</span><span className="font-medium">${q.prompt.length > 160 && !isOpen ? q.prompt.slice(0, 160) + "…" : q.prompt}</span></span>
+              <span className="min-w-0 flex-1">${q.topic && html`<span className="block eyebrow mb-1">${q.topic}</span>`}<span className=${"chip mr-2 tone-" + MODES[q.type].tone}>${MODES[q.type].label}</span><span className="font-medium">${q.prompt.length > 160 && !isOpen ? q.prompt.slice(0, 160) + "…" : q.prompt}</span></span>
               <span className="text-sm font-bold shrink-0" style=${{ color: ok ? "rgb(var(--ok))" : "rgb(var(--bad))" }}>${ok ? "✓" : a ? "✗" : "—"}</span>
             </button>
             ${isOpen && html`<div className="px-4 pb-4 grid md:grid-cols-2 gap-3 text-[15px]">
@@ -649,7 +734,9 @@ function App() {
   const [current, setCurrent] = useState(null);
   const [sideOpen, setSideOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
-  const [engine, setEngine] = useState(() => pref.get("smai:engine", IN_CLAUDE ? "claude" : "demo"));
+  const [engine, setEngine] = useState(() => pref.get("smai:engine", IN_CLAUDE ? "claude" : "gemini"));
+  const [gem, setGemState] = useState(() => geminiAccount.load());
+  const setGem = (g) => { geminiAccount.save(g); setGemState(g); };
   const [api, setApi] = useState(() => apiSettings.load());
   useEffect(() => { apiSettings.save(api); }, [api]);
   const [claudeBlocked, setClaudeBlocked] = useState(false);
@@ -713,12 +800,14 @@ function App() {
   const claudeOk = IN_CLAUDE && !!caps.sample && !claudeBlocked;
   const apiModels = api.models?.[api.provider] || {};
   const apiReady = !IN_CLAUDE && !!api.key.trim() && !!apiModels.text;
-  const activeEngine = engine === "claude" && claudeOk ? "claude" : engine === "api" && apiReady ? "api" : "demo";
+  const geminiReady = !IN_CLAUDE && !!gem.key && !!gem.model;
+  const activeEngine = engine === "gemini" && geminiReady ? "gemini" : engine === "claude" && claudeOk ? "claude" : engine === "api" && apiReady ? "api" : "demo";
   const ai = useMemo(() => (activeEngine === "claude" ? claudeAccountAI(caps.sample, caps.imgMax)
+    : activeEngine === "gemini" ? apiKeyAI({ provider: "gemini", label: "Gemini", key: gem.key, models: { text: gem.model, vision: gem.model } })
     : activeEngine === "api" ? apiKeyAI({ provider: api.provider, key: api.key.trim(), models: apiModels }) : null),
-    [activeEngine, caps.sample, caps.imgMax, api.provider, api.key, apiModels.text, apiModels.vision]);
+    [activeEngine, caps.sample, caps.imgMax, gem.key, gem.model, api.provider, api.key, apiModels.text, apiModels.vision]);
   const visionOk = !!ai && ai.maxImages > 0;
-  const engineLabel = activeEngine === "claude" ? "Claude (tu cuenta)" : activeEngine === "api" ? `${PROVIDERS[api.provider].short} (tu API key)` : "Demo local";
+  const engineLabel = activeEngine === "gemini" ? "Gemini · tu cuenta" : activeEngine === "claude" ? "Claude · tu cuenta" : activeEngine === "api" ? `${PROVIDERS[api.provider].short} · tu API key` : "Demo local · sin IA";
   // Un error de cuenta/permisos desactiva Claude en esta visita; con API key se avisa y se sigue en local.
   const onAIError = (e) => { if (e && DISABLE_CODES.has(e.code)) setClaudeBlocked(true); };
 
@@ -812,13 +901,13 @@ function App() {
       if (ai) {
         try { res = await aiGenerate(ai, files, cfg, avoid, setGenerating); }
         catch (e) {
-          if (e && DISABLE_CODES.has(e.code)) { onAIError(e); toast(aiErrorText(e), "peach"); res = generateLocal(files, cfg); used = "Demo local"; }
+          if (e && DISABLE_CODES.has(e.code)) { onAIError(e); toast(aiErrorText(e), "peach"); res = generateLocal(files, cfg); used = "Demo local · sin IA"; }
           else throw e;
         }
       } else { await sleep(250); res = generateLocal(files, cfg); }
       if (res.questions.length < cfg.count) toast(`Se generaron ${res.questions.length} de ${cfg.count} preguntas con el material disponible.`, "butter");
       if (res.coverage < 100) toast(`Tu material es extenso: se usó ~${res.coverage}% del texto, muestreado de todas las secciones.`, "butter");
-      const q = { id: uid(), createdAt: Date.now(), engine: used === "Demo local" ? "demo" : "ai", engineLabel: used, config: cfg, questions: res.questions, answers: {}, current: 0, finishedAt: null, pct: 0, attempts: [] };
+      const q = { id: uid(), createdAt: Date.now(), engine: used.startsWith("Demo") ? "demo" : "ai", engineLabel: used, config: cfg, questions: res.questions, answers: {}, current: 0, finishedAt: null, pct: 0, attempts: [] };
       mutate((s) => ({ ...s, quizzes: [...s.quizzes, q], activeQuizId: q.id, step: "quiz", lastConfig: cfg }));
       window.scrollTo({ top: 0 });
     } catch (e) {
@@ -851,7 +940,7 @@ function App() {
   const onRetry = () => { updQuiz((q) => ({ ...q, attempts: q.finishedAt ? [...q.attempts, { pct: q.pct, at: q.finishedAt }] : q.attempts, answers: {}, current: 0, finishedAt: null, pct: 0, questions: shuffle(q.questions) })); mutate((s) => ({ ...s, step: "quiz" })); };
 
   // ------------------------------------------------------------------ render
-  if (!auth) return html`<${LoginScreen} caps=${caps} notice=${loginNotice} onChoose=${(a) => { pref.set("smai:auth", a); setLoginNotice(null); setAuth(a); }} />`;
+  if (!auth) return html`<${LoginScreen} caps=${caps} notice=${loginNotice} onChoose=${(a) => { pref.set("smai:auth", a); setLoginNotice(null); if (a.via === "gemini") setEngine("gemini"); setAuth(a); }} />`;
   if (!current) return html`<div className="h-full grid place-items-center"><span className="flex items-center gap-3 font-bold"><${Spinner} /> Cargando tu historial…</span></div>`;
 
   const readyCount = current.files.filter((f) => f.status === "ready").length;
@@ -868,10 +957,10 @@ function App() {
       theme=${theme} onTheme=${() => setTheme((t) => (t === "system" ? "light" : t === "light" ? "dark" : "system"))}
       onLogout=${() => { pref.del("smai:auth"); setAuth(null); setStore(null); setCurrent(null); setSessions([]); }} />
     <main className="flex-1 min-w-0 flex flex-col gap-5 pb-10">
-      <${Header} session=${current} step=${step} enabled=${enabled} onStep=${goStep} onMenu=${() => setSideOpen(true)}
+      <${Header} session=${current} step=${step} enabled=${enabled} onStep=${goStep} onMenu=${() => setSideOpen(true)} modeLabel=${engineLabel} modeKind=${activeEngine}
         onRename=${(t) => mutate((s) => ({ ...s, title: t, titleEdited: true }))} />
       ${step === "material" && html`<${MaterialStep} session=${current} onFiles=${addFiles} onSample=${addSample} onRemove=${removeFile} onToggle=${toggleFile} onNext=${() => goStep("config")}
-        modePanel=${html`<${ModePanel} mode=${engine} onMode=${(e) => { setEngine(e); pref.set("smai:engine", e); }} claudeOk=${claudeOk} claudeVision=${caps.imgMax > 0} api=${api} setApi=${setApi} apiReady=${apiReady} />`} />`}
+        modePanel=${html`<${ModePanel} mode=${engine} onMode=${(e) => { setEngine(e); pref.set("smai:engine", e); }} claudeOk=${claudeOk} claudeVision=${caps.imgMax > 0} api=${api} setApi=${setApi} apiReady=${apiReady} gem=${gem} setGem=${setGem} geminiReady=${geminiReady} />`} />`}
       ${step === "config" && html`<${ConfigStep} key=${current.id} session=${current} engineLabel=${engineLabel} generating=${generating} onGenerate=${generate} />`}
       ${step === "quiz" && quiz && html`<${QuizStep} quiz=${quiz} aiOk=${!!ai} onChoice=${onChoice} onSubmitText=${onSubmitText} onSelfEval=${onSelfEval} onAIValidate=${onAIValidate} onNext=${onNext} onExit=${() => goStep("config")} />`}
       ${step === "results" && quiz && html`<${ResultsStep} quiz=${quiz} generating=${generating} onRetry=${onRetry} onNewQuestions=${() => generate(quiz.config)} onUpload=${() => goStep("material")} />`}
