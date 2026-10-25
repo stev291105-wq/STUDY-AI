@@ -1480,23 +1480,42 @@ function LoginScreen({ onChoose, notice }) {
 
 // Dentro de claude.ai no se pide apodo: si la cuenta de Claude está disponible se entra directamente;
 // si no, se guía al visitante para iniciar sesión en Claude.
+const CLAUDE_CAPS = ["sample", "user", "db"];
+const PERM_TEXT = { granted: "concedido", prompt: "pendiente de tu permiso", denied: "rechazado", unavailable: "no disponible" };
+
 function ClaudeGate({ caps, onEnter, notice }) {
   const muted = { color: "rgb(var(--muted))" };
   const connected = !!(caps.sample || caps.me);
   const who = caps.me?.name || caps.me?.email || "";
-  // sessionStorage del marco: recuerda que el visitante fue a iniciar sesión y cuántas veces se recargó ya.
-  const ss = { get: (k) => { try { return sessionStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} }, del: (k) => { try { sessionStorage.removeItem(k); } catch {} } };
-  const tries = +(ss.get("smai:claude-reloads") || 0);
-  // Recargar StudyMaster (el marco, no la pestaña) para que el visor le entregue la sesión recién iniciada.
-  const recheck = () => { ss.del("smai:await-login"); ss.set("smai:claude-reloads", String(tries + 1)); location.reload(); };
-  // Al volver a esta pestaña después de iniciar sesión en otra, se comprueba sola (una vez).
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const ss = { get: (k) => { try { return sessionStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} } };
+  const perm = caps.perm || {};
+  const state = (n) => perm[n] || "unavailable";
+  const askable = CLAUDE_CAPS.filter((n) => state(n) === "prompt");
+  const denied = CLAUDE_CAPS.filter((n) => state(n) === "denied");
+  // Conectar: pedir a claude.ai el permiso para usar la cuenta del visitante (un solo diálogo) y recargar StudyMaster con él.
+  const connect = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      if (caps.perms && askable.length) {
+        const r = await caps.perms.request(askable);
+        if (CLAUDE_CAPS.some((n) => r?.[n] === "granted")) { location.reload(); return; }
+        setMsg("No se concedió el permiso. Pulsa «Conectar» de nuevo y elige «Permitir», o revisa los permisos de la página.");
+      } else if (caps.perms && denied.length) {
+        await caps.perms.manage().catch(() => setMsg("Abre el menú de la página en claude.ai (arriba, junto al nombre «StudyMaster AI») → Permisos, y activa el acceso a tu cuenta."));
+        const now = await caps.perms.state().catch(() => ({}));
+        if (CLAUDE_CAPS.some((n) => now?.[n] === "granted")) { location.reload(); return; }
+      } else if (CLAUDE_CAPS.some((n) => state(n) === "granted")) { location.reload(); return; }
+      else setMsg("claude.ai no ofrece tu cuenta a esta página. Comprueba que tienes la sesión iniciada (tu foto arriba a la derecha) y recarga con F5. Si sigue igual, tu cuenta no puede usar la IA en páginas publicadas por otra persona: usa la versión web con Gemini.");
+    } finally { setBusy(false); }
+  };
+  // Al abrir la página con la sesión iniciada pero sin permiso concedido, se pide una vez automáticamente.
   useEffect(() => {
-    if (!caps.ready || connected) { if (connected) ss.del("smai:claude-reloads"); return; }
-    const back = () => { if (document.visibilityState === "visible" && ss.get("smai:await-login")) recheck(); };
-    document.addEventListener("visibilitychange", back);
-    window.addEventListener("focus", back);
-    return () => { document.removeEventListener("visibilitychange", back); window.removeEventListener("focus", back); };
-  }, [caps.ready, connected]);
+    if (!caps.ready || connected || !caps.perms || !askable.length || ss.get("smai:claude-asked")) return;
+    ss.set("smai:claude-asked", "1");
+    connect();
+  }, [caps.ready]);
   return html`<div className="landing landing-access grid place-items-center px-4 py-10">
     <div className="w-full max-w-[480px] flex flex-col gap-5">
       <div className="flex justify-center"><span className="rounded-xl px-3 py-2" style=${{ background: "rgb(var(--surface))", color: "rgb(var(--ink))" }}><${Brand} /></span></div>
@@ -1520,18 +1539,20 @@ function ClaudeGate({ caps, onEnter, notice }) {
               <p className="text-sm mt-1" style=${muted}>StudyMaster usa la IA de tu propia cuenta de Claude (sin API key) y guarda tu historial en tu cuenta.</p>
             </div>
             ${notice && html`<p className="rounded-xl p-3 text-sm tone-peach">${notice}</p>`}
-            ${tries > 0 && html`<div className="rounded-xl p-3 text-sm tone-butter flex flex-col gap-1" role="alert">
-              <b>Tu sesión todavía no llega a esta página.</b>
-              <span>Si ya iniciaste sesión en Claude, recarga la pestaña del navegador con <b>F5</b> (o el botón ⟳ del navegador). Al recargar, StudyMaster se abrirá directamente con tu cuenta.</span>
-            </div>`}
-            <ol className="flex flex-col gap-3">
-              <${GuideStep} n="1"><b className="text-sm">Inicia sesión con el botón «Iniciar sesión» de la barra de claude.ai</b>
-                <span className="text-sm" style=${muted}>Está arriba a la derecha de esta página. Al terminar, claude.ai te devuelve aquí. Si ya ves tu foto o tu inicial arriba a la derecha, ya tienes la sesión iniciada: pasa al paso 2.</span>
-                <a className="btn btn-ghost !py-2 text-sm self-start !whitespace-normal" href="https://claude.ai/login" target="_blank" rel="noopener" onClick=${() => ss.set("smai:await-login", "1")}><${Icon} name="user" size=${16} /> O ábrelo en otra pestaña ↗</a><//>
-              <${GuideStep} n="2"><b className="text-sm">Conecta StudyMaster con tu sesión</b>
-                <button className="btn btn-primary !py-2.5 self-start" onClick=${recheck}><${Icon} name="refresh" size=${16} /> Ya inicié sesión: conectar</button>
-                <span className="text-xs" style=${muted}>Si iniciaste sesión en otra pestaña, al volver aquí StudyMaster se comprueba solo.</span><//>
-            </ol>
+            <button className="btn btn-primary w-full !py-4 !text-lg" disabled=${busy} onClick=${connect}>
+              ${busy ? html`<${Spinner} /> Conectando…` : html`<${Icon} name="user" /> Conectar mi cuenta de Claude`}
+            </button>
+            <p className="text-sm" style=${muted}>Si claude.ai te pregunta si StudyMaster puede usar tu cuenta, elige <b>Permitir</b>. ¿Aún no has iniciado sesión? Usa <b>«Iniciar sesión»</b> arriba a la derecha de claude.ai y vuelve a pulsar «Conectar».</p>
+            ${msg && html`<p className="rounded-xl p-3 text-sm tone-butter" role="alert">${msg}</p>`}
+            <details className="text-xs rounded-xl p-2.5" style=${{ background: "rgb(var(--surface-2))" }}>
+              <summary className="font-bold cursor-pointer">Estado de la conexión</summary>
+              <ul className="mt-1.5 flex flex-col gap-0.5" style=${muted}>
+                <li>IA de Claude: <b>${PERM_TEXT[state("sample")]}</b></li>
+                <li>Tu identidad: <b>${PERM_TEXT[state("user")]}</b></li>
+                <li>Historial en la nube: <b>${PERM_TEXT[state("db")]}</b></li>
+                ${!caps.perms && html`<li>El visor de claude.ai no respondió a la página.</li>`}
+              </ul>
+            </details>
             <div className="border-t pt-3 flex flex-col gap-2 text-sm" style=${{ ...muted, borderColor: "rgb(var(--line-soft))" }}>
               <button className="font-bold underline self-start text-left" style=${{ color: "rgb(var(--accent))" }} onClick=${onEnter}>Entrar sin conectar Claude (modo demo, sin IA)</button>
               <span>¿Prefieres Gemini? <a className="font-bold underline" style=${{ color: "rgb(var(--accent))" }} href=${LINKS.web} target="_blank" rel="noopener">Abre la versión web ↗</a></span>
@@ -1791,7 +1812,13 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady
       title=${html`Cuenta de Claude <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
       desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude, sin API key: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "Inicia sesión en claude.ai para usar tu cuenta.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key: lee imágenes y letra a mano y redacta preguntas a medida."}
       tags=${IN_CLAUDE ? (claudeVision ? ["OCR + manuscritos", "preguntas IA", "validación IA"] : ["preguntas IA", "validación IA"]) : []}>
-      ${IN_CLAUDE && !claudeOk && html`<button className="btn btn-ghost !py-2 text-sm mt-2 self-start" onClick=${(e) => { e.stopPropagation(); location.reload(); }}><${Icon} name="refresh" size=${16} /> Ya inicié sesión: conectar</button>`}
+      ${IN_CLAUDE && !claudeOk && html`<button className="btn btn-primary !py-2 text-sm mt-2 self-start" onClick=${async (e) => {
+        e.stopPropagation();
+        // Pide a claude.ai el permiso para usar la cuenta y recarga StudyMaster con él.
+        const p = await window.claude?.use("permissions").catch(() => null);
+        if (p) { const st = await p.state().catch(() => ({})); const ask = CLAUDE_CAPS.filter((n) => st?.[n] === "prompt"); if (ask.length) await p.request(ask).catch(() => {}); }
+        location.reload();
+      }}><${Icon} name="user" size=${16} /> Conectar mi cuenta de Claude</button>`}
       ${!IN_CLAUDE && html`<a className="btn btn-primary !py-2 text-sm mt-2 self-start !whitespace-normal" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Entrar con mi cuenta de Claude ↗</a>
         <span className="text-xs mt-1" style=${{ color: "rgb(var(--muted))" }}>Se abre StudyMaster en claude.ai: inicias sesión y entras directamente con el modo Claude conectado, sin escribir tu nombre.</span>`}
     <//>
@@ -2184,7 +2211,7 @@ function ResultsStep({ quiz, generating, onRetry, onNewQuestions, onUpload }) {
 const newSession = () => ({ id: uid(), title: "Nueva sesión de estudio", titleEdited: false, createdAt: Date.now(), updatedAt: Date.now(), files: [], fileCount: 0, quizzes: [], activeQuizId: null, step: "material", lastConfig: null, excluded: [] });
 
 function App() {
-  const [caps, setCaps] = useState({ ready: false, sample: null, db: null, user: null, me: null, uid: null, imgMax: 0 });
+  const [caps, setCaps] = useState({ ready: false, sample: null, db: null, user: null, me: null, uid: null, imgMax: 0, perms: null, perm: {} });
   // Dentro de Claude la entrada la decide la cuenta del visitante (ClaudeGate), no un acceso guardado.
   const [auth, setAuth] = useState(() => (IN_CLAUDE ? null : pref.get("smai:auth")));
   const autoEntered = useRef(false);
@@ -2216,11 +2243,13 @@ function App() {
   useEffect(() => {
     (async () => {
       const c = window.claude;
-      const [sample, db, user] = c ? await Promise.all(["sample", "db", "user"].map((n) => c.use(n).catch(() => null))) : [null, null, null];
-      let me = null, imgMax = 0;
-      if (user) me = await user.me();
+      const [sample, db, user, perms] = c ? await Promise.all(["sample", "db", "user", "permissions"].map((n) => c.use(n).catch(() => null))) : [null, null, null, null];
+      let me = null, imgMax = 0, perm = {};
+      if (user) { try { me = await user.me(); } catch {} }
       if (sample) { try { imgMax = (await sample.limits())?.images?.maxCount || 0; } catch {} }
-      setCaps({ ready: true, sample, db, user, me, uid: me?.id || null, imgMax });
+      // Estado de los permisos que el visitante concede a la página (para pedirlos si faltan).
+      if (perms) { try { perm = (await perms.state()) || {}; } catch {} }
+      setCaps({ ready: true, sample, db, user, me, uid: me?.id || null, imgMax, perms, perm });
     })();
     const onErr = (e) => toast(e.detail?.code === "quota" ? "El almacenamiento de este navegador está lleno: borra sesiones antiguas del historial." : "No se pudo guardar el último cambio. Se reintentará con el siguiente.", "rose");
     window.addEventListener("smai-save-error", onErr);
