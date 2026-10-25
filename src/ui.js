@@ -64,18 +64,13 @@ const HeroPreview = () => html`<div className="hero-preview hidden 2xl:block" ar
   <div className="hero-badge flat tone-butter"><span className="mono text-2xl font-bold">92%</span><span className="text-xs font-bold">Dominio total</span></div>
 </div>`;
 
-function LoginScreen({ caps, onChoose, notice }) {
+function LoginScreen({ onChoose, notice }) {
   const [nick, setNick] = useState(pref.get("smai:nick", ""));
-  const accountReady = !!(caps.db && caps.uid);
-  const who = caps.me?.name || caps.me?.email || "";
-  const checking = IN_CLAUDE && !caps.ready;
   const muted = { color: "rgb(var(--muted))" };
-  // Dentro de Claude se entra con la cuenta del visitante si está disponible (historial en la nube); si no, como invitado.
   const enter = (e) => {
     e.preventDefault();
-    if (checking) return;
     pref.set("smai:nick", nick.trim());
-    onChoose(IN_CLAUDE && accountReady ? { mode: "account", nick: nick.trim() } : { mode: "guest", nick: nick.trim() });
+    onChoose({ mode: "guest", nick: nick.trim() });
   };
   const pad = "px-4 sm:px-8 lg:px-12 xl:px-16";
   return html`<div className="landing grid lg:grid-cols-[minmax(0,1fr)_clamp(380px,34vw,520px)] min-h-full">
@@ -115,15 +110,8 @@ function LoginScreen({ caps, onChoose, notice }) {
           ${notice && html`<p className="rounded-xl p-3 text-sm tone-peach">${notice}</p>`}
           <label htmlFor="nick" className="text-sm font-bold -mb-2">Nombre o apodo <span className="font-normal" style=${muted}>(opcional)</span></label>
           <input id="nick" className="field !py-3 !text-base" placeholder="Ej. Ana" autoComplete="nickname" value=${nick} maxLength="40" onInput=${(e) => setNick(e.target.value)} />
-          <button type="submit" className="btn btn-primary w-full !py-4 !text-lg" disabled=${checking}>
-            ${checking ? html`<${Spinner} /> Comprobando tu cuenta…` : html`Acceder <${Icon} name="arrow" />`}
-          </button>
-          ${IN_CLAUDE
-            ? html`<p className="flex items-center gap-2 text-sm rounded-xl p-2.5" style=${{ background: "rgb(var(--surface-2))" }}>
-                ${accountReady && caps.me?.avatarUrl ? html`<img src=${caps.me.avatarUrl} alt="" className="w-7 h-7 rounded-full" />` : html`<${IconTile} name="user" tone="lav" size=${15} className="!w-7 !h-7" />`}
-                <span className="min-w-0">${checking ? "Comprobando tu cuenta de Claude…" : accountReady ? html`Tu historial se guardará en tu cuenta de Claude${who ? html` · <b>${who}</b>` : ""}.` : "Tu historial se guardará en este navegador. Inicia sesión en claude.ai para guardarlo en la nube."}</span>
-              </p>`
-            : html`<p className="text-sm" style=${muted}>Después de acceder eliges cómo estudiar: <b>With Gemini</b>, tu <b>cuenta de Claude</b>, el <b>demo sin IA</b> o tu propia <b>API key</b>.</p>`}
+          <button type="submit" className="btn btn-primary w-full !py-4 !text-lg">Acceder <${Icon} name="arrow" /></button>
+          <p className="text-sm" style=${muted}>Después de acceder eliges cómo estudiar: <b>With Gemini</b>, tu <b>cuenta de Claude</b>, el <b>demo sin IA</b> o tu propia <b>API key</b>.</p>
         </form>
         <ul className="access-perks">
           <li><${Icon} name="check" size=${16} stroke=${3} /> Gratis y sin instalar nada</li>
@@ -167,6 +155,51 @@ function LoginScreen({ caps, onChoose, notice }) {
       </section>
 
       <p className="text-xs" style=${muted}>StudyMaster AI · hecho para estudiar mejor con tus propios apuntes.</p>
+    </div>
+  </div>`;
+}
+
+// Dentro de claude.ai no se pide apodo: si la cuenta de Claude está disponible se entra directamente;
+// si no, se guía al visitante para iniciar sesión en Claude.
+function ClaudeGate({ caps, onEnter, notice }) {
+  const muted = { color: "rgb(var(--muted))" };
+  const connected = !!(caps.sample || caps.me);
+  const who = caps.me?.name || caps.me?.email || "";
+  // Volver a cargar la página de Claude para que el visor recoja la sesión recién iniciada.
+  const reloadTop = () => { try { window.top.location.href = LINKS.claudeApp; } catch { location.reload(); } };
+  return html`<div className="landing landing-access grid place-items-center px-4 py-10">
+    <div className="w-full max-w-[460px] flex flex-col gap-5">
+      <div className="flex justify-center"><span className="rounded-xl px-3 py-2" style=${{ background: "rgb(var(--surface))", color: "rgb(var(--ink))" }}><${Brand} /></span></div>
+      <section className="access-card flex flex-col gap-4" aria-live="polite">
+        ${!caps.ready ? html`<div className="flex flex-col items-center text-center gap-3 py-6">
+            <span className="flex items-center gap-3 font-bold text-lg"><${Spinner} /> Conectando con tu cuenta de Claude…</span>
+            <p className="text-sm" style=${muted}>Un momento: comprobamos tu sesión de claude.ai.</p>
+          </div>`
+        : connected ? html`<div>
+              <div className="eyebrow">Cuenta de Claude</div>
+              <h1 className="text-[1.6rem] leading-tight font-extrabold mt-1">Sesión de Claude conectada</h1>
+            </div>
+            <p className="flex items-center gap-3 rounded-xl p-3 tone-mint">
+              ${caps.me?.avatarUrl ? html`<img src=${caps.me.avatarUrl} alt="" className="w-9 h-9 rounded-full" />` : html`<${IconTile} name="user" tone="mint" size=${16} className="!w-9 !h-9" />`}
+              <span className="min-w-0"><b>✓ Conectado${who ? " como " + who : ""}</b><span className="block text-sm">La IA usará tu propia cuenta de Claude, sin API key.</span></span>
+            </p>
+            <button className="btn btn-primary w-full !py-4 !text-lg" onClick=${onEnter}>Entrar a estudiar <${Icon} name="arrow" /></button>`
+        : html`<div>
+              <div className="eyebrow">Cuenta de Claude</div>
+              <h1 className="text-[1.6rem] leading-tight font-extrabold mt-1">Inicia sesión con tu cuenta de Claude</h1>
+              <p className="text-sm mt-1" style=${muted}>StudyMaster usa la IA de tu propia cuenta de Claude (sin API key) y guarda tu historial en tu cuenta.</p>
+            </div>
+            ${notice && html`<p className="rounded-xl p-3 text-sm tone-peach">${notice}</p>`}
+            <ol className="flex flex-col gap-3">
+              <${GuideStep} n="1"><b className="text-sm">Inicia sesión en Claude con tu correo o tu cuenta de Google</b>
+                <a className="btn btn-primary !py-2.5 self-start !whitespace-normal" href="https://claude.ai/login" target="_blank" rel="noopener"><${Icon} name="user" size=${16} /> Iniciar sesión en Claude ↗</a>
+                <span className="text-xs" style=${muted}>También puedes usar el botón «Iniciar sesión» de la barra de claude.ai.</span><//>
+              <${GuideStep} n="2"><b className="text-sm">Vuelve aquí y pulsa «Ya inicié sesión»</b>
+                <span className="text-sm" style=${muted}>StudyMaster se abrirá directamente con el modo Claude conectado.</span>
+                <button className="btn btn-ghost !py-2.5 self-start" onClick=${reloadTop}><${Icon} name="refresh" size=${16} /> Ya inicié sesión</button><//>
+            </ol>
+            <p className="text-sm border-t pt-3" style=${{ ...muted, borderColor: "rgb(var(--line-soft))" }}>¿Prefieres no usar Claude? <a className="font-bold underline" style=${{ color: "rgb(var(--accent))" }} href=${LINKS.web} target="_blank" rel="noopener">Abre la versión web ↗</a> para estudiar con Gemini o en modo demo.</p>`}
+      </section>
     </div>
   </div>`;
 }
@@ -421,7 +454,8 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady
       title=${html`Cuenta de Claude <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
       desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude, sin API key: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "Inicia sesión en claude.ai para usar tu cuenta.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key: lee imágenes y letra a mano y redacta preguntas a medida."}
       tags=${IN_CLAUDE ? (claudeVision ? ["OCR + manuscritos", "preguntas IA", "validación IA"] : ["preguntas IA", "validación IA"]) : []}>
-      ${!IN_CLAUDE && html`<a className="btn btn-ghost !py-2 text-sm mt-2 self-start" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Iniciar sesión en Claude ↗</a>`}
+      ${!IN_CLAUDE && html`<a className="btn btn-primary !py-2 text-sm mt-2 self-start !whitespace-normal" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Entrar con mi cuenta de Claude ↗</a>
+        <span className="text-xs mt-1" style=${{ color: "rgb(var(--muted))" }}>Se abre StudyMaster en claude.ai: inicias sesión y entras directamente con el modo Claude conectado, sin escribir tu nombre.</span>`}
     <//>
     <${ModeCard} id="demo" num="3" active=${mode === "demo"} available=${true} onPick=${onMode}
       title="Demo local" desc="Sin IA: extracción con PDF.js y Mammoth, OCR con Tesseract y preguntas por reglas, todo en tu navegador."
@@ -664,7 +698,7 @@ function QuizStep({ quiz, aiOk, onChoice, onSubmitText, onSelfEval, onAIValidate
 
       ${q.topic && html`<div className="flex items-center gap-2 -mb-2"><span className="eyebrow">Temática</span><span className="font-bold text-[15px] truncate" style=${{ fontFamily: "var(--font-display)" }}>${q.topic}</span></div>`}
       ${q.type === "fill_blank"
-        ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${"hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1)}
+        ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium whitespace-pre-line">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${"hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1)}
             onInput=${(e) => { const v = [...values]; v[i] = e.target.value; setValues(v); }} onKeyDown=${(e) => { if (e.key === "Enter" && !a) { e.preventDefault(); submitText(); } }} />`}</span>`)}</p>`
         : html`<p className="text-lg md:text-xl leading-relaxed font-medium whitespace-pre-line">${q.prompt}</p>`}
 
@@ -691,7 +725,7 @@ function QuizStep({ quiz, aiOk, onChoice, onSubmitText, onSelfEval, onAIValidate
       ${a && (q.type === "multiple_choice" || q.type === "true_false") && html`<div className=${"rounded-2xl p-4 pop " + (a.correct ? "verdict-ok" : "verdict-bad")} role="status">
         <div className="font-extrabold text-lg" style=${{ color: a.correct ? "rgb(var(--ok))" : "rgb(var(--bad))", fontFamily: "var(--font-display)" }}>${a.correct ? "✓ ¡Correcto!" : "✗ Incorrecto"}</div>
         ${!a.correct && html`<p className="mt-1"><b>Respuesta correcta:</b> ${q.type === "true_false" ? (q.answerBool ? "Verdadero" : "Falso") : `${LETTERS[q.answerIndex]}) ${q.options[q.answerIndex]}`}</p>`}
-        <p className="mt-1 text-[15px]" style=${{ color: "rgb(var(--muted))" }}>${q.explanation}</p>
+        <p className="mt-1 text-[15px] whitespace-pre-line" style=${{ color: "rgb(var(--muted))" }}>${q.explanation}</p>
       </div>`}
 
       ${a?.submitted && html`<div className="official rounded-2xl p-4 flex flex-col gap-3 pop">
@@ -813,7 +847,9 @@ const newSession = () => ({ id: uid(), title: "Nueva sesión de estudio", titleE
 
 function App() {
   const [caps, setCaps] = useState({ ready: false, sample: null, db: null, user: null, me: null, uid: null, imgMax: 0 });
-  const [auth, setAuth] = useState(() => pref.get("smai:auth"));
+  // Dentro de Claude la entrada la decide la cuenta del visitante (ClaudeGate), no un acceso guardado.
+  const [auth, setAuth] = useState(() => (IN_CLAUDE ? null : pref.get("smai:auth")));
+  const autoEntered = useRef(false);
   const [theme, setTheme] = useState(() => pref.get("smai:theme", "system"));
   const [store, setStore] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -858,6 +894,17 @@ function App() {
     if (theme === "system") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", theme);
     pref.set("smai:theme", theme);
   }, [theme]);
+
+  // Dentro de Claude: con la cuenta disponible se entra directamente, en modo Claude y con el historial en la nube.
+  const enterClaude = () => {
+    const a = caps.db && caps.uid ? { mode: "account", nick: caps.me?.name || "" } : { mode: "guest", nick: caps.me?.name || "" };
+    setLoginNotice(null); setEngine("claude"); pref.set("smai:engine", "claude"); setAuth(a);
+  };
+  useEffect(() => {
+    if (!IN_CLAUDE || !caps.ready || auth || autoEntered.current || !(caps.sample || caps.me)) return;
+    autoEntered.current = true;
+    enterClaude();
+  }, [caps.ready]);
 
   // Abre el almacén según el modo de acceso elegido.
   useEffect(() => {
@@ -1026,7 +1073,9 @@ function App() {
   const onRetry = () => { updQuiz((q) => ({ ...q, attempts: q.finishedAt ? [...q.attempts, { pct: q.pct, at: q.finishedAt }] : q.attempts, answers: {}, current: 0, finishedAt: null, pct: 0, questions: shuffle(q.questions) })); mutate((s) => ({ ...s, step: "quiz" })); };
 
   // ------------------------------------------------------------------ render
-  if (!auth) return html`<${LoginScreen} caps=${caps} notice=${loginNotice} onChoose=${(a) => { pref.set("smai:auth", a); setLoginNotice(null); if (a.via === "gemini") setEngine("gemini"); setAuth(a); }} />`;
+  if (!auth) return IN_CLAUDE
+    ? html`<${ClaudeGate} caps=${caps} notice=${loginNotice} onEnter=${enterClaude} />`
+    : html`<${LoginScreen} notice=${loginNotice} onChoose=${(a) => { pref.set("smai:auth", a); setLoginNotice(null); setAuth(a); }} />`;
   if (!current) return html`<div className="h-full grid place-items-center"><span className="flex items-center gap-3 font-bold"><${Spinner} /> Cargando tu historial…</span></div>`;
 
   const readyCount = current.files.filter((f) => f.status === "ready").length;

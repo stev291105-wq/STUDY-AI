@@ -636,6 +636,7 @@ function headingLike(line) {
   const t = cleanHeading(line);
   if (t.length < 3 || t.length > 70 || /[.;,]$/.test(line.trim())) return false;
   if (t.split(/\s+/).length > 9 || !/^[\p{Lu}\d¿¡]/u.test(t)) return false;
+  if (/:\s+\S/.test(t) && !/^(unidad|tema|cap[ií]tulo|m[oó]dulo|bloque|parte|secci[oó]n|lecci[oó]n|resumen|apuntes|gu[ií]a|introducci[oó]n|repaso)\b/i.test(t)) return false;
   return (t.match(/\p{L}/gu) || []).length / t.length > 0.6;
 }
 const BULLET = /^(?:[•\-–*·▪►]\s*|\d{1,2}[.)]\s+)/;
@@ -736,44 +737,103 @@ function parseSubject(sent, midCaps) {
   return {
     prefix, det, noun, npText, proper, pred: rest,
     plural: det ? PLURAL_DET.test(det) : false,
+    agent: !proper && /(?:dor|dora|dores|doras|ista|istas|ante|antes|ente|entes|[oó]logo|[oó]loga|[oó]logos|[oó]logas)$/i.test(np[0]),
     gender: det ? (FEM_DET.test(det) ? "f" : "m") : null,
     def: COPULA.test(rest) ? rest.replace(/^(es|son|era|eran|fue|fueron)\s+/i, "").replace(/[.!?]$/, "") : null,
     copula: COPULA.test(rest) ? rest.split(/\s+/)[0].toLowerCase() : null,
   };
 }
 
-/** Hechos citables con su temática (título del apartado, diapositiva o página). */
+// Limpieza del texto extraído de PDF: «palabra ,» → «palabra,», «( 1998 )» → «(1998)».
+const tidy = (t) => t.replace(/\s+([,.;:!?)\]»])/g, "$1").replace(/([(\[«¿¡])\s+/g, "$1").replace(/\s{2,}/g, " ").trim();
+// Referencias de página en los títulos: «Períodos de Calvi (pág. 20)» → «Períodos de Calvi».
+const cleanTopic = (t) => t.replace(/\s*\((?:p[áa]gs?|pp?)\.?\s*[\d\s,\-–y]+\)/gi, "").replace(/[:\s]+$/, "").trim() || t;
+// Verbos frecuentes y terminaciones verbales: una oración sin verbo es un fragmento, no una afirmación.
+const VERB_WORDS = new Set(("es son fue fueron era eran sera seran esta estan estaba estaban estuvo tiene tienen tenia tenian tuvo hay habia ha han " +
+  "puede pueden debe deben permite permiten incluye incluyen consiste consisten busca buscan define definen describe describen distingue distinguen " +
+  "propone proponen plantea plantean considera consideran utiliza utilizan usa usan produce producen forma forman realiza realizan presenta presentan " +
+  "indica indican senala senalan afirma afirman sostiene sostienen implica implican requiere requieren genera generan contiene contienen depende dependen " +
+  "existe existen ocurre ocurren aparece aparecen sirve sirven suele suelen denomina denominan llama llaman fija fijan comienza comienzan surge surgen " +
+  "explica explican estudia estudian analiza analizan evalua evaluan mide miden aporta aportan establece establecen favorece favorecen").split(" "));
+const hasVerb = (t) => {
+  const w = t.toLowerCase().split(/[\s,;:()«»"]+/).filter(Boolean);
+  return w.some((x, i) => VERB_WORDS.has(normalize(x)) || (x.length > 3 && /(?:ó|aron|ieron|aba|aban|ían)$/.test(x)) || (/^(se|no|lo|le|les|nos)$/.test(w[i - 1] || "") && x.length > 2 && !isStop(x)));
+};
+// Oraciones que dependen de la anterior («Esta obra…», «Además…»): se muestran con su contexto.
+const ANAPHOR = /^(este|esta|estos|estas|esto|ello|dicho|dicha|dichos|dichas|su|sus|además|también|asimismo|así|por ello|por eso|por lo tanto|sin embargo|en cambio|incluye|incluyen|permite|permiten)\b/i;
+// Etiquetas genéricas de esquema: valen para preguntas abiertas, no para confundir conceptos entre sí.
+const GEN_LABEL = /^(objetivos?|ejemplos?|nota|notas|definici[oó]n|concepto|importante|resumen|caracter[ií]sticas?|funci[oó]n|funciones|causas?|consecuencias?|ventajas?|desventajas?|tipos?|clasificaci[oó]n|idea principal|conclusi[oó]n|conclusiones|autores?|fuente|observaci[oó]n|finalidad|prop[oó]sito|etapas?|fases?)$/i;
+/** «Período psicométrico: Binet (1905), Terman (1916)…» → {label, desc}. Null si es una oración normal con dos puntos. */
+function parseTerm(line) {
+  const m = line.match(/^([^:]{2,60}):\s+(.{8,300})$/);
+  if (!m) return null;
+  const label = m[1].trim(), desc = m[2].trim().replace(/\.$/, "");
+  const lw = label.split(/\s+/);
+  if (lw.length > 6 || !/^\p{Lu}/u.test(label) || DET.test(lw[0]) || /\d/.test(label) || lw.some((w) => VERB_WORDS.has(normalize(w)))) return null;
+  if ((label.match(/\p{L}/gu) || []).length / label.replace(/\s/g, "").length < 0.85) return null;
+  const words = desc.replace(/\([^)]*\)/g, " ").split(/[\s,;]+/).filter((w) => /\p{L}/u.test(w));
+  const content = words.filter((w) => !/^(y|e|de|del|la|las|los|el|van|von|da|di|du|le)$/i.test(w));
+  const refs = content.length > 0 && content.filter((w) => isCap(w)).length / content.length >= 0.7;
+  return { label, desc, refs, generic: GEN_LABEL.test(label) };
+}
+// Nombres propios citados en una lista de autores: «Sternberg (1998), Fernández Ballesteros y Grigorenko» → [Sternberg, Fernández Ballesteros, Grigorenko].
+const refNames = (desc) => desc.replace(/\([^)]*\)/g, ",").split(/\s*(?:,|;|\by\b|\be\b)\s*/).map((x) => x.trim()).filter((x) => /^\p{Lu}/u.test(x));
+
+/** Hechos citables con su temática (título del apartado, diapositiva o página) y las oraciones vecinas como contexto. */
 function buildFacts(files) {
   const facts = [];
   const midCaps = new Set();
   const pending = [];
+  const sentsBySec = new Map();
   files.forEach((f, fi) => {
     let heading = "";
     f.sections.forEach((sec) => {
       // Solo texto fiable: el texto digital y el OCR con buena confianza; las descripciones visuales no son oraciones del documento.
       if (sec.origin === "visual" || sec.lowConfidence) return;
-      const paras = reflow(sec.text.replace(/\[[^\]]*\]/g, " "));
-      if (sec.origin === "native_text" && paras[0] && headingLike(paras[0]) && (/^Diapositiva/.test(sec.location) || paras.length > 1)) heading = cleanHeading(paras[0]);
+      const secKey = f.name + "|" + sec.location;
+      const all = sentsBySec.get(secKey) || [];
+      sentsBySec.set(secKey, all);
+      const paras = reflow(sec.text.replace(/\[[^\]]*\]/g, " ")).map((p) => (p ? tidy(p) : p));
+      if (sec.origin === "native_text" && paras[0] && headingLike(paras[0]) && (/^Diapositiva/.test(sec.location) || paras.length > 1)) heading = cleanTopic(cleanHeading(paras[0]));
       paras.forEach((p, i) => {
         if (!p) return;
         const next = paras.slice(i + 1).find(Boolean) || "";
-        if (headingLike(p)) { if (i > 0 && sec.origin === "native_text" && next.length >= 40 && /[.!?]$/.test(next)) heading = cleanHeading(p); return; }
+        if (headingLike(p)) { if (i > 0 && sec.origin === "native_text" && (next.length >= 30 || parseTerm(next.replace(BULLET, "")))) heading = cleanTopic(cleanHeading(p)); return; }
         const para = p.replace(BULLET, "");
+        const base = { doc: f.name, loc: sec.location, topic: heading || cleanTopic(docTitle(f.name)), fi, secKey };
+        const term = parseTerm(para);
+        if (term) {
+          all.push({ t: para, topic: base.topic });
+          pending.push({ ...base, text: `${term.label}: ${term.desc}.`, term, si: all.length - 1 });
+          return;
+        }
         para.split(/(?<=[.!?])\s+(?=[\p{Lu}¿¡«"\d])/u).forEach((raw) => {
           const t = raw.replace(/\s+/g, " ").trim();
+          if (t.length >= 12) all.push({ t, topic: base.topic });
           const words = t.split(" ");
           const letters = (t.match(/\p{L}/gu) || []).length / Math.max(1, t.length);
           // Solo oraciones completas: terminan en punto, tienen extensión razonable y son texto (no restos de OCR).
           if (!/[.!?]$/.test(t) || t.length < 30 || t.length > 320 || words.length < 6 || letters < 0.6) return;
           words.forEach((w, k) => { if (k > 0 && isCap(w)) midCaps.add(normalize(bare(w))); });
-          pending.push({ text: t, doc: f.name, loc: sec.location, topic: heading || docTitle(f.name), fi, secKey: f.name + "|" + sec.location });
+          pending.push({ ...base, text: t, si: all.length - 1 });
         });
       });
     });
   });
-  pending.forEach((s, id) => {
+  pending.forEach((s) => {
+    const all = sentsBySec.get(s.secKey);
+    // Contexto: las oraciones vecinas del mismo apartado (nunca de otro tema).
+    const near = (k) => (all[k] && all[k].topic === s.topic ? all[k].t : "");
+    const ctx = { before: near(s.si - 1), after: near(s.si + 1) };
+    if (s.term) { facts.push({ ...s, id: facts.length, subj: null, numbers: [], ctx }); return; }
     const subj = parseSubject(s.text, midCaps);
-    facts.push({ ...s, id, subj, numbers: s.text.match(NUM) || [] });
+    // Una oración sin sujeto reconocible ni verbo es un fragmento: no sirve para preguntar.
+    if (!subj && !hasVerb(s.text)) return;
+    const anaphoric = ANAPHOR.test(s.text);
+    if (anaphoric && !ctx.before) return;
+    // Cifras de la prosa; los años de las citas («Sternberg (1998)») y las páginas no son datos que estudiar.
+    const prose = s.text.replace(/\([^)]*\)/g, " ").replace(/\b(?:p[áa]gs?|pp?)\.\s*\d+/gi, " ");
+    facts.push({ ...s, id: facts.length, subj, numbers: prose.match(NUM) || [], anaphoric, ctx });
   });
   return facts;
 }
@@ -781,8 +841,19 @@ function buildFacts(files) {
 // ------------------------------------------------------------------ utilidades de redacción
 const ucFirst = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 const npLower = (subj) => (subj.det ? subj.det.toLowerCase() + " " : "") + subj.noun;
+// Contracciones: «a el» → «al», «de el» → «del».
+const contract = (t) => t.replace(/\b([aA]) el\b/g, "$1l").replace(/\b([dD]e) el\b/g, "$1l");
 const stripEnd = (t) => t.replace(/[.!?]+$/, "");
-const cite = (f) => `Según «${f.doc}» · ${f.loc} (tema «${f.topic}»): “${f.text}”`;
+/** Fuente y contexto de un hecho: la oración exacta del material y las oraciones vecinas. */
+function cite(f) {
+  let t = `Fuente: «${f.doc}» · ${f.loc} (tema «${f.topic}»).\nEl material dice: “${f.text}”`;
+  if (f.ctx?.before || f.ctx?.after) t += `\nContexto del apunte: ${[f.ctx.before, f.ctx.after].filter(Boolean).map((x) => `“${x}”`).join(" … ")}`;
+  return t;
+}
+// Contexto previo para oraciones que dependen de la anterior («Esta obra se publicó…»).
+const lead = (f) => (f.anaphoric && f.ctx?.before ? `Contexto: «${f.ctx.before}»\n` : "");
+// Complemento inicial convertido en aclaración: «En la entrevista abierta, …» → «en la entrevista abierta».
+const prefixPhrase = (s) => (s.prefix ? " " + s.prefix.replace(/,\s*$/, "").replace(/^\p{Lu}/u, (c) => c.toLowerCase()) : "");
 const replaceOnce = (text, term, by) => { const i = text.indexOf(term); return i < 0 ? text : text.slice(0, i) + by + text.slice(i + term.length); };
 /** La oración con el sujeto cambiado por otro concepto (manteniendo mayúsculas y concordancia). */
 function swapSubject(f, other) {
@@ -809,8 +880,10 @@ function keyIdeas(text, max = 4, skip = "") {
 }
 // Comparables: mismo número, mismo género y, si son nombres propios, ambos con artículo («La Revolución Francesa»)
 // o ambos sin él (personas: «Napoleón Bonaparte»), para que el cambio no rompa la concordancia ni el sentido.
-const sameShape = (a, b) => a.subj.plural === b.subj.plural && a.subj.proper === b.subj.proper && a.subj.gender === b.subj.gender && !!a.subj.det === !!b.subj.det;
-const sameConcept = (a, b) => normalize(a.subj.noun) === normalize(b.subj.noun);
+const sameShape = (a, b) => a.subj.plural === b.subj.plural && a.subj.proper === b.subj.proper && a.subj.gender === b.subj.gender && !!a.subj.det === !!b.subj.det && a.subj.agent === b.subj.agent;
+const contentWords = (t) => normalize(t).split(" ").filter((w) => w.length > 2 && !isStop(w));
+const overlaps = (x, y) => { const A = contentWords(x), B = contentWords(y); return !A.length || !B.length || A.every((w) => B.includes(w)) || B.every((w) => A.includes(w)); };
+const sameConcept = (a, b) => normalize(a.subj.noun) === normalize(b.subj.noun) || overlaps(a.subj.noun, b.subj.noun);
 
 /** Revisión final de sentido: descarta preguntas mal formadas, venga de la IA o de las reglas. */
 function saneQuestion(q) {
@@ -828,26 +901,44 @@ function saneQuestion(q) {
 function generateLocal(files, cfg) {
   const facts = buildFacts(files);
   const withSubj = facts.filter((f) => f.subj);
+  const terms = facts.filter((f) => f.term);
   // Con poco material se generan las preguntas que sea posible (la interfaz avisa si salen menos); solo se falla si no hay nada útil.
-  if (!withSubj.length && !facts.some((f) => f.numbers.length))
+  if (!withSubj.length && !terms.length && !facts.some((f) => f.numbers.length))
     throw new Error("El modo demo no encontró suficientes oraciones completas en tus documentos. Funciona mejor con Word, PDF o archivos de texto con párrafos redactados; para fotos, esquemas o apuntes a mano usa With Gemini o tu cuenta de Claude.");
   const d = cfg.difficulty, hard = d === "hard" || d === "jacqueline";
   const nOpts = d === "jacqueline" ? 5 : 4;
   const sentences = new Set(facts.map((f) => normalize(f.text)));
+  // Opciones: la correcta y hasta nOpts-1 distractores; con menos de dos distractores no hay pregunta.
+  const optionsWith = (right, others) => {
+    const pool = [...new Set(others.map(ucFirst))].filter((x) => normalize(x) !== normalize(right));
+    return pool.length >= 2 ? shuffle([ucFirst(right), ...pool.slice(0, nOpts - 1)]) : null;
+  };
   // Todas las oraciones de un mismo concepto en el mismo documento: la «ficha» que sirve de respuesta modelo.
-  const card = (f) => withSubj.filter((x) => x.fi === f.fi && sameConcept(x, f)).map((x) => x.text).slice(0, 3).join(" ");
+  const card = (f) => {
+    if (f.term) return `${f.term.label}: ${f.term.desc}.`;
+    const mine = withSubj.filter((x) => x.fi === f.fi && sameConcept(x, f));
+    const exact = (x) => normalize(x.subj.noun) === normalize(f.subj.noun);
+    return [f, ...mine.filter((x) => x !== f && exact(x)), ...mine.filter((x) => !exact(x))].map((x) => x.text).slice(0, 3).join(" ");
+  };
   // Otros conceptos comparables del mismo documento (nunca de otro documento), del mismo tema primero en niveles altos.
   const peers = (f, { sameTopic = false, defs = false } = {}) => {
     const seen = new Set([normalize(f.subj.noun)]);
     const list = withSubj.filter((x) => x.fi === f.fi && !sameConcept(x, f) && sameShape(x, f) && (!defs || x.subj.def)
       && !normalize(f.text).includes(normalize(x.subj.noun)) && (!sameTopic || x.topic === f.topic));
     const ordered = hard ? [...list.filter((x) => x.topic === f.topic), ...shuffle(list.filter((x) => x.topic !== f.topic))] : shuffle(list);
-    return ordered.filter((x) => { const k = normalize(x.subj.noun); if (seen.has(k)) return false; seen.add(k); return true; });
+    const picked = [];
+    return ordered.filter((x) => { const k = normalize(x.subj.noun); if (seen.has(k) || picked.some((y) => overlaps(y, x.subj.noun))) return false; seen.add(k); picked.push(x.subj.noun); return true; });
+  };
+  // Otras entradas «Concepto: descripción» del mismo documento y de la misma clase (listas de autores con listas de autores).
+  const termPeers = (f) => {
+    const list = terms.filter((x) => x.fi === f.fi && x.id !== f.id && !x.term.generic && x.term.refs === f.term.refs
+      && !overlaps(x.term.label, f.term.label) && normalize(x.term.desc) !== normalize(f.term.desc));
+    return [...shuffle(list.filter((x) => x.topic === f.topic)), ...shuffle(list.filter((x) => x.topic !== f.topic))];
   };
   // Preferencia por nivel: fácil → definiciones; difícil/Jacqueline → datos concretos y oraciones largas.
-  const weight = (f) => (d === "easy" ? (f.subj?.def ? 3 : f.subj ? 1 : 0) - f.text.length / 300
-    : d === "medium" ? (f.subj ? 1 : 0)
-    : (f.numbers.length ? 2 : 0) + (f.subj ? 1 : 0) + f.text.length / 200) + Math.random() * 1.5;
+  const weight = (f) => (d === "easy" ? (f.subj?.def ? 3 : f.term && !f.term.refs ? 2 : f.subj || f.term ? 1 : 0) - f.text.length / 300
+    : d === "medium" ? (f.subj || f.term ? 1 : 0)
+    : (f.numbers.length ? 2 : 0) + (f.subj || f.term ? 1 : 0) + f.text.length / 200) + Math.random() * 1.5;
   const ranked = [...facts].sort((a, b) => weight(b) - weight(a));
   const used = new Map(); // id del hecho → tipos ya usados
   const mark = (f, type) => used.set(f.id, [...(used.get(f.id) || []), type]);
@@ -857,13 +948,19 @@ function generateLocal(files, cfg) {
   const build = {
     multiple_choice(f) {
       const T = f.topic;
+      if (f.term) {
+        // «¿Con qué concepto relaciona el material a estos autores?» con los otros conceptos del mismo esquema.
+        if (f.term.generic) return null;
+        const opts = optionsWith(f.term.label, termPeers(f).map((x) => x.term.label));
+        if (!opts) return null;
+        const prompt = f.term.refs ? `En el tema «${T}», ¿con qué concepto relaciona el material a estos autores?\n«${f.term.desc}»`
+          : `En el tema «${T}», ¿a qué concepto corresponde esta descripción del material?\n«${f.term.desc}»`;
+        return { ...base(f, "multiple_choice"), prompt, options: opts, answerIndex: opts.indexOf(ucFirst(f.term.label)), explanation: `La respuesta es «${f.term.label}».\n${cite(f)}` };
+      }
       // 1) Definición: «¿Qué es la mitocondria?» con definiciones reales de otros conceptos.
       if (f.subj?.def && (d === "easy" || d === "medium" || Math.random() < 0.4)) {
-        const others = peers(f, { defs: true }).map((x) => ucFirst(x.subj.def)).filter((x) => normalize(x) !== normalize(f.subj.def));
-        if (others.length >= nOpts - 1) {
-          const right = ucFirst(f.subj.def), opts = shuffle([right, ...others.slice(0, nOpts - 1)]);
-          return { ...base(f, "multiple_choice"), prompt: `En el tema «${T}», ¿qué ${f.subj.copula} ${npLower(f.subj)}?`, options: opts, answerIndex: opts.indexOf(right) };
-        }
+        const opts = optionsWith(f.subj.def, peers(f, { defs: true }).map((x) => x.subj.def));
+        if (opts) return { ...base(f, "multiple_choice"), prompt: `En el tema «${T}», ¿qué ${f.subj.copula} ${npLower(f.subj)} según el material?`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.def)) };
       }
       // 2) Dato concreto (niveles altos): la cifra exacta.
       if (hard && f.numbers.length) {
@@ -871,16 +968,16 @@ function generateLocal(files, cfg) {
         const vars = numericVariants(n, f.numbers).slice(0, nOpts - 1);
         if (vars.length >= nOpts - 1) {
           const opts = shuffle([n, ...vars]);
-          return { ...base(f, "multiple_choice"), prompt: `En el tema «${T}», ¿qué dato completa correctamente la afirmación?\n«${replaceOnce(f.text, n, BLANK)}»`, options: opts, answerIndex: opts.indexOf(n) };
+          return { ...base(f, "multiple_choice"), prompt: `${lead(f)}En el tema «${T}», ¿qué dato completa correctamente la afirmación?\n«${replaceOnce(f.text, n, BLANK)}»`, options: opts, answerIndex: opts.indexOf(n) };
         }
       }
       // 3) Concepto: «¿A qué concepto corresponde esta afirmación?» con conceptos del mismo documento y misma concordancia.
       if (f.subj) {
         const others = peers(f, { sameTopic: d === "jacqueline" && peers(f, { sameTopic: true }).length >= nOpts - 1 });
-        if (others.length >= nOpts - 1) {
-          const right = ucFirst(f.subj.npText), opts = shuffle([right, ...others.slice(0, nOpts - 1).map((x) => ucFirst(x.subj.npText))]);
+        const opts = optionsWith(f.subj.npText, others.map((x) => x.subj.npText));
+        if (opts) {
           const stem = f.subj.prefix ? `${f.subj.prefix}${BLANK} ${f.subj.pred}` : `${BLANK} ${f.subj.pred}`;
-          return { ...base(f, "multiple_choice"), prompt: `En el tema «${T}», ¿a qué concepto corresponde esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(right) };
+          return { ...base(f, "multiple_choice"), prompt: `En el tema «${T}», ¿a qué concepto corresponde esta afirmación?\n«${stem}»`, options: opts, answerIndex: opts.indexOf(ucFirst(f.subj.npText)) };
         }
       }
       return null;
@@ -888,12 +985,20 @@ function generateLocal(files, cfg) {
 
     true_false(f) {
       const T = f.topic, b = base(f, "true_false");
+      if (f.term) {
+        // Emparejar cada concepto con su descripción; la falsa usa la descripción de otro concepto del mismo esquema.
+        if (f.term.generic) return null;
+        const pick = termPeers(f)[0];
+        const say = (desc) => `Sobre «${T}»: ¿verdadero o falso?\nSegún el material, a «${f.term.label}» le corresponde: ${desc}.`;
+        if (!pick || Math.random() < 0.45) return { ...b, prompt: say(f.term.desc), answerBool: true, explanation: `Es verdadera.\n${cite(f)}` };
+        return { ...b, prompt: say(pick.term.desc), answerBool: false, explanation: `Es falsa. Eso corresponde a «${pick.term.label}». Para «${f.term.label}», el material indica: ${f.term.desc}.\n${cite(f)}` };
+      }
       const falses = [];
       if (f.subj) {
         // Otro concepto comparable del mismo documento: fácil → de otro tema; difícil → del mismo tema (más sutil).
         const pool = peers(f, { sameTopic: hard && peers(f, { sameTopic: true }).length > 0 });
         const pick = d === "easy" ? pool.find((x) => x.topic !== T) || pool[0] : pool[0];
-        if (pick) falses.push({ text: swapSubject(f, pick), why: `El material atribuye esto a ${npLower(f.subj)}, no a ${npLower(pick.subj)}.` });
+        if (pick) falses.push({ text: swapSubject(f, pick), why: contract(`El material atribuye esto a ${npLower(f.subj)}, no a ${npLower(pick.subj)}.`) });
         if (f.subj.def) falses.push({ text: replaceOnce(f.text, ` ${f.subj.copula} `, ` no ${f.subj.copula} `), why: `El material afirma lo contrario.` });
       }
       if (f.numbers.length) {
@@ -904,59 +1009,90 @@ function generateLocal(files, cfg) {
         falses.push({ text: f.text.replace(/\bno\s+/, ""), why: `El material dice justo lo contrario.` });
       const order = hard ? [...falses].reverse() : falses;
       const pickFalse = order.find((x) => !sentences.has(normalize(x.text)) && x.text !== f.text);
-      if (!pickFalse || Math.random() < 0.45) return f.subj || f.numbers.length ? { ...b, prompt: `Según el tema «${T}»: ${f.text}`, answerBool: true } : null;
-      return { ...b, prompt: `Según el tema «${T}»: ${pickFalse.text}`, answerBool: false, explanation: `Es falsa. ${pickFalse.why} ${cite(f)}` };
+      const ask = (text) => `${lead(f)}Sobre «${T}»: ¿verdadero o falso?\n«${text}»`;
+      if (!pickFalse || Math.random() < 0.45) return f.subj || f.numbers.length ? { ...b, prompt: ask(f.text), answerBool: true, explanation: `Es verdadera: el material lo afirma así.\n${cite(f)}` } : null;
+      return { ...b, prompt: ask(pickFalse.text), answerBool: false, explanation: `Es falsa. ${pickFalse.why}\n${cite(f)}` };
     },
 
     fill_blank(f) {
       const T = f.topic;
+      const head = `${lead(f)}Completa según el material (tema «${T}»):\n`;
+      if (f.term) {
+        if (f.term.generic) return null;
+        const names = f.term.refs ? refNames(f.term.desc) : [];
+        // Jacqueline: el concepto y uno de sus autores.
+        if (d === "jacqueline" && names.length > 1) {
+          const who = names[0];
+          return { ...base(f, "fill_blank"), prompt: `${head}${BLANK}: ${replaceOnce(f.term.desc, who, BLANK)}.`, answers: [[f.term.label], [who]], explanation: `Respuestas: «${f.term.label}» y «${who}».\n${cite(f)}` };
+        }
+        return { ...base(f, "fill_blank"), prompt: `${head}${BLANK}: ${f.term.desc}.`, answers: [[f.term.label]], explanation: `Respuesta: «${f.term.label}».\n${cite(f)}` };
+      }
       const numBlank = f.numbers.length && (hard || !f.subj);
       if (d === "jacqueline" && f.subj && !f.subj.proper && f.numbers.length) {
         // Dos huecos: el concepto y el dato exacto.
         const n = f.numbers[0];
         let prompt = replaceOnce(f.text, f.subj.noun, BLANK);
         prompt = replaceOnce(prompt, n, BLANK);
-        return { ...base(f, "fill_blank"), prompt: `Tema «${T}»: ${prompt}`, answers: [[f.subj.noun, f.subj.npText], [n]] };
+        return { ...base(f, "fill_blank"), prompt: head + prompt, answers: [[f.subj.noun, f.subj.npText], [n]] };
       }
       if (numBlank) {
         const n = f.numbers[0];
-        return { ...base(f, "fill_blank"), prompt: `Tema «${T}»: ${replaceOnce(f.text, n, BLANK)}`, answers: [[n]] };
+        return { ...base(f, "fill_blank"), prompt: head + replaceOnce(f.text, n, BLANK), answers: [[n]] };
       }
       if (f.subj) {
         const target = f.subj.noun;
-        return { ...base(f, "fill_blank"), prompt: `Tema «${T}»: ${replaceOnce(f.text, target, BLANK)}`, answers: [[...new Set([target, f.subj.npText])]] };
+        return { ...base(f, "fill_blank"), prompt: head + replaceOnce(f.text, target, BLANK), answers: [[...new Set([target, f.subj.npText])]] };
       }
       return null;
     },
 
     open(f) {
+      const T = f.topic;
+      if (f.term) {
+        const t = f.term;
+        if (hard && !t.generic) {
+          // Dos conceptos del mismo esquema y tema: qué incluye cada uno.
+          const pair = termPeers(f).find((x) => x.topic === T && usable(x, "open"));
+          if (pair) {
+            mark(pair, "open");
+            const prompt = t.refs ? `En el tema «${T}», ¿qué autores sitúa el material en «${t.label}» y cuáles en «${pair.term.label}»?`
+              : `En el tema «${T}», explica y diferencia «${t.label}» y «${pair.term.label}» según el material.`;
+            return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n${card(pair)}`, keyPoints: t.refs ? [...refNames(t.desc).slice(0, 2), ...refNames(pair.term.desc).slice(0, 2)] : [...keyIdeas(t.desc, 2), ...keyIdeas(pair.term.desc, 2)], explanation: `${cite(f)}\n${cite(pair)}` };
+          }
+        }
+        const prompt = t.refs ? `En el tema «${T}», ¿qué autores asocia el material con «${t.label}»?`
+          : t.generic ? `En el tema «${T}», ¿qué indica el material como «${t.label.toLowerCase()}»?`
+          : `En el tema «${T}», explica «${t.label}» según el material.`;
+        const kp = t.refs ? refNames(t.desc).slice(0, 4) : keyIdeas(t.desc, 4);
+        return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
+      }
       if (!f.subj) return null;
-      const T = f.topic, s = f.subj, np = npLower(s);
-      const pl = s.plural;
+      const s = f.subj, np = npLower(s), pp = prefixPhrase(s);
       if (d === "hard" || d === "jacqueline") {
         // Relacionar o comparar dos conceptos del mismo documento (mismo núcleo o mismo tema).
-        const head = normalize(s.noun.split(" ")[0]);
-        const cands = withSubj.filter((x) => x.fi === f.fi && !sameConcept(x, f) && usable(x, "open"));
-        const pair = (d === "jacqueline" ? cands.find((x) => normalize(x.subj.noun.split(" ")[0]) === head) : null) || cands.find((x) => x.topic === T);
+        const headWord = normalize(s.noun.split(" ")[0]);
+        const cands = s.prefix ? [] : withSubj.filter((x) => x.fi === f.fi && !x.subj.prefix && !sameConcept(x, f) && usable(x, "open"));
+        const pair = (d === "jacqueline" ? cands.find((x) => normalize(x.subj.noun.split(" ")[0]) === headWord) : null) || cands.find((x) => x.topic === T);
         if (pair) {
           mark(pair, "open");
           const other = npLower(pair.subj);
           const where = pair.topic === T ? ` (tema «${T}»)` : ` (temas «${T}» y «${pair.topic}»)`;
-          // Solo se pide «comparar» conceptos de la misma clase («células somáticas» y «células procariotas»); si no, su relación.
-          const comparable = normalize(pair.subj.noun.split(" ")[0]) === head;
+          // Solo se pide «comparar» conceptos de la misma clase («entrevista abierta» y «entrevista cerrada»); si no, su relación.
+          const comparable = normalize(pair.subj.noun.split(" ")[0]) === headWord;
           const prompt = d === "jacqueline"
             ? (comparable ? `Compara ${np} y ${other}${where}: ¿en qué se parecen y en qué se diferencian según el material? Sé preciso con los datos.`
               : `¿Qué relación hay entre ${np} y ${other}${where} según el material? Explícala con los datos exactos que aporta.`)
             : `En el tema «${T}», explica qué dice el material sobre ${np} y sobre ${other}, y cómo se relacionan.`;
-          return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`, keyPoints: [...new Set([...keyIdeas(f.subj.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
+          return { ...base(f, "open"), prompt, modelAnswer: `${card(f)}\n\n${card(pair)}`, keyPoints: [...new Set([...keyIdeas(s.pred, 2, s.noun), ...keyIdeas(pair.subj.pred, 2, pair.subj.noun)])], explanation: `${cite(f)}\n${cite(pair)}` };
         }
       }
+      // La pregunta pide solo lo que el material contesta: «¿qué es…?» únicamente si hay definición.
       const prompt = s.def && d === "easy" ? `En el tema «${T}», ¿qué ${s.copula} ${np} según el material?`
-        : d === "easy" ? `En el tema «${T}», ¿qué explica el material sobre ${np}?`
-        : s.proper && !s.det ? `En el tema «${T}», ¿qué hizo ${np} según el material y por qué es relevante?`
-        : s.proper ? `En el tema «${T}», ¿qué explica el material sobre ${np}? Incluye los datos que aporta.`
-        : `En el tema «${T}», describe ${np}: ¿qué ${pl ? "son" : "es"} y qué función o características ${pl ? "tienen" : "tiene"} según el material?`;
-      return { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: keyIdeas(card(f), 4, s.noun) };
+        : s.def ? `En el tema «${T}», describe ${np}: ¿qué ${s.plural ? "son" : "es"} y qué características ${s.plural ? "tienen" : "tiene"} según el material?`
+        : s.proper && !s.det && !s.prefix ? `En el tema «${T}», ¿qué hizo ${np} según el material y por qué es relevante?`
+        : `En el tema «${T}», ¿qué dice el material sobre ${np}${pp}?${d === "easy" ? "" : " Incluye los datos que aporta."}`;
+      const kp = keyIdeas(card(f), 4, s.noun);
+      return kp.length ? { ...base(f, "open"), prompt, modelAnswer: card(f), keyPoints: kp } : null;
     },
   };
 
@@ -1247,18 +1383,13 @@ const HeroPreview = () => html`<div className="hero-preview hidden 2xl:block" ar
   <div className="hero-badge flat tone-butter"><span className="mono text-2xl font-bold">92%</span><span className="text-xs font-bold">Dominio total</span></div>
 </div>`;
 
-function LoginScreen({ caps, onChoose, notice }) {
+function LoginScreen({ onChoose, notice }) {
   const [nick, setNick] = useState(pref.get("smai:nick", ""));
-  const accountReady = !!(caps.db && caps.uid);
-  const who = caps.me?.name || caps.me?.email || "";
-  const checking = IN_CLAUDE && !caps.ready;
   const muted = { color: "rgb(var(--muted))" };
-  // Dentro de Claude se entra con la cuenta del visitante si está disponible (historial en la nube); si no, como invitado.
   const enter = (e) => {
     e.preventDefault();
-    if (checking) return;
     pref.set("smai:nick", nick.trim());
-    onChoose(IN_CLAUDE && accountReady ? { mode: "account", nick: nick.trim() } : { mode: "guest", nick: nick.trim() });
+    onChoose({ mode: "guest", nick: nick.trim() });
   };
   const pad = "px-4 sm:px-8 lg:px-12 xl:px-16";
   return html`<div className="landing grid lg:grid-cols-[minmax(0,1fr)_clamp(380px,34vw,520px)] min-h-full">
@@ -1298,15 +1429,8 @@ function LoginScreen({ caps, onChoose, notice }) {
           ${notice && html`<p className="rounded-xl p-3 text-sm tone-peach">${notice}</p>`}
           <label htmlFor="nick" className="text-sm font-bold -mb-2">Nombre o apodo <span className="font-normal" style=${muted}>(opcional)</span></label>
           <input id="nick" className="field !py-3 !text-base" placeholder="Ej. Ana" autoComplete="nickname" value=${nick} maxLength="40" onInput=${(e) => setNick(e.target.value)} />
-          <button type="submit" className="btn btn-primary w-full !py-4 !text-lg" disabled=${checking}>
-            ${checking ? html`<${Spinner} /> Comprobando tu cuenta…` : html`Acceder <${Icon} name="arrow" />`}
-          </button>
-          ${IN_CLAUDE
-            ? html`<p className="flex items-center gap-2 text-sm rounded-xl p-2.5" style=${{ background: "rgb(var(--surface-2))" }}>
-                ${accountReady && caps.me?.avatarUrl ? html`<img src=${caps.me.avatarUrl} alt="" className="w-7 h-7 rounded-full" />` : html`<${IconTile} name="user" tone="lav" size=${15} className="!w-7 !h-7" />`}
-                <span className="min-w-0">${checking ? "Comprobando tu cuenta de Claude…" : accountReady ? html`Tu historial se guardará en tu cuenta de Claude${who ? html` · <b>${who}</b>` : ""}.` : "Tu historial se guardará en este navegador. Inicia sesión en claude.ai para guardarlo en la nube."}</span>
-              </p>`
-            : html`<p className="text-sm" style=${muted}>Después de acceder eliges cómo estudiar: <b>With Gemini</b>, tu <b>cuenta de Claude</b>, el <b>demo sin IA</b> o tu propia <b>API key</b>.</p>`}
+          <button type="submit" className="btn btn-primary w-full !py-4 !text-lg">Acceder <${Icon} name="arrow" /></button>
+          <p className="text-sm" style=${muted}>Después de acceder eliges cómo estudiar: <b>With Gemini</b>, tu <b>cuenta de Claude</b>, el <b>demo sin IA</b> o tu propia <b>API key</b>.</p>
         </form>
         <ul className="access-perks">
           <li><${Icon} name="check" size=${16} stroke=${3} /> Gratis y sin instalar nada</li>
@@ -1350,6 +1474,51 @@ function LoginScreen({ caps, onChoose, notice }) {
       </section>
 
       <p className="text-xs" style=${muted}>StudyMaster AI · hecho para estudiar mejor con tus propios apuntes.</p>
+    </div>
+  </div>`;
+}
+
+// Dentro de claude.ai no se pide apodo: si la cuenta de Claude está disponible se entra directamente;
+// si no, se guía al visitante para iniciar sesión en Claude.
+function ClaudeGate({ caps, onEnter, notice }) {
+  const muted = { color: "rgb(var(--muted))" };
+  const connected = !!(caps.sample || caps.me);
+  const who = caps.me?.name || caps.me?.email || "";
+  // Volver a cargar la página de Claude para que el visor recoja la sesión recién iniciada.
+  const reloadTop = () => { try { window.top.location.href = LINKS.claudeApp; } catch { location.reload(); } };
+  return html`<div className="landing landing-access grid place-items-center px-4 py-10">
+    <div className="w-full max-w-[460px] flex flex-col gap-5">
+      <div className="flex justify-center"><span className="rounded-xl px-3 py-2" style=${{ background: "rgb(var(--surface))", color: "rgb(var(--ink))" }}><${Brand} /></span></div>
+      <section className="access-card flex flex-col gap-4" aria-live="polite">
+        ${!caps.ready ? html`<div className="flex flex-col items-center text-center gap-3 py-6">
+            <span className="flex items-center gap-3 font-bold text-lg"><${Spinner} /> Conectando con tu cuenta de Claude…</span>
+            <p className="text-sm" style=${muted}>Un momento: comprobamos tu sesión de claude.ai.</p>
+          </div>`
+        : connected ? html`<div>
+              <div className="eyebrow">Cuenta de Claude</div>
+              <h1 className="text-[1.6rem] leading-tight font-extrabold mt-1">Sesión de Claude conectada</h1>
+            </div>
+            <p className="flex items-center gap-3 rounded-xl p-3 tone-mint">
+              ${caps.me?.avatarUrl ? html`<img src=${caps.me.avatarUrl} alt="" className="w-9 h-9 rounded-full" />` : html`<${IconTile} name="user" tone="mint" size=${16} className="!w-9 !h-9" />`}
+              <span className="min-w-0"><b>✓ Conectado${who ? " como " + who : ""}</b><span className="block text-sm">La IA usará tu propia cuenta de Claude, sin API key.</span></span>
+            </p>
+            <button className="btn btn-primary w-full !py-4 !text-lg" onClick=${onEnter}>Entrar a estudiar <${Icon} name="arrow" /></button>`
+        : html`<div>
+              <div className="eyebrow">Cuenta de Claude</div>
+              <h1 className="text-[1.6rem] leading-tight font-extrabold mt-1">Inicia sesión con tu cuenta de Claude</h1>
+              <p className="text-sm mt-1" style=${muted}>StudyMaster usa la IA de tu propia cuenta de Claude (sin API key) y guarda tu historial en tu cuenta.</p>
+            </div>
+            ${notice && html`<p className="rounded-xl p-3 text-sm tone-peach">${notice}</p>`}
+            <ol className="flex flex-col gap-3">
+              <${GuideStep} n="1"><b className="text-sm">Inicia sesión en Claude con tu correo o tu cuenta de Google</b>
+                <a className="btn btn-primary !py-2.5 self-start !whitespace-normal" href="https://claude.ai/login" target="_blank" rel="noopener"><${Icon} name="user" size=${16} /> Iniciar sesión en Claude ↗</a>
+                <span className="text-xs" style=${muted}>También puedes usar el botón «Iniciar sesión» de la barra de claude.ai.</span><//>
+              <${GuideStep} n="2"><b className="text-sm">Vuelve aquí y pulsa «Ya inicié sesión»</b>
+                <span className="text-sm" style=${muted}>StudyMaster se abrirá directamente con el modo Claude conectado.</span>
+                <button className="btn btn-ghost !py-2.5 self-start" onClick=${reloadTop}><${Icon} name="refresh" size=${16} /> Ya inicié sesión</button><//>
+            </ol>
+            <p className="text-sm border-t pt-3" style=${{ ...muted, borderColor: "rgb(var(--line-soft))" }}>¿Prefieres no usar Claude? <a className="font-bold underline" style=${{ color: "rgb(var(--accent))" }} href=${LINKS.web} target="_blank" rel="noopener">Abre la versión web ↗</a> para estudiar con Gemini o en modo demo.</p>`}
+      </section>
     </div>
   </div>`;
 }
@@ -1604,7 +1773,8 @@ function ModePanel({ mode, onMode, claudeOk, claudeVision, api, setApi, apiReady
       title=${html`Cuenta de Claude <span className="pill tone-butter !text-[11px] ml-1 align-middle">★ Recomendado</span>`}
       desc=${IN_CLAUDE ? (claudeOk ? "Usa tu propia cuenta de Claude, sin API key: lee imágenes y letra a mano, redacta preguntas a medida y valida tus respuestas." : "Inicia sesión en claude.ai para usar tu cuenta.") : "Inicia sesión con tu correo en Claude y StudyMaster usará tu propia cuenta, sin API key: lee imágenes y letra a mano y redacta preguntas a medida."}
       tags=${IN_CLAUDE ? (claudeVision ? ["OCR + manuscritos", "preguntas IA", "validación IA"] : ["preguntas IA", "validación IA"]) : []}>
-      ${!IN_CLAUDE && html`<a className="btn btn-ghost !py-2 text-sm mt-2 self-start" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Iniciar sesión en Claude ↗</a>`}
+      ${!IN_CLAUDE && html`<a className="btn btn-primary !py-2 text-sm mt-2 self-start !whitespace-normal" href=${LINKS.claudeApp} target="_blank" rel="noopener" onClick=${(e) => e.stopPropagation()}><${Icon} name="user" size=${16} /> Entrar con mi cuenta de Claude ↗</a>
+        <span className="text-xs mt-1" style=${{ color: "rgb(var(--muted))" }}>Se abre StudyMaster en claude.ai: inicias sesión y entras directamente con el modo Claude conectado, sin escribir tu nombre.</span>`}
     <//>
     <${ModeCard} id="demo" num="3" active=${mode === "demo"} available=${true} onPick=${onMode}
       title="Demo local" desc="Sin IA: extracción con PDF.js y Mammoth, OCR con Tesseract y preguntas por reglas, todo en tu navegador."
@@ -1847,7 +2017,7 @@ function QuizStep({ quiz, aiOk, onChoice, onSubmitText, onSelfEval, onAIValidate
 
       ${q.topic && html`<div className="flex items-center gap-2 -mb-2"><span className="eyebrow">Temática</span><span className="font-bold text-[15px] truncate" style=${{ fontFamily: "var(--font-display)" }}>${q.topic}</span></div>`}
       ${q.type === "fill_blank"
-        ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${"hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1)}
+        ? html`<p className="text-lg md:text-xl leading-[2.2] font-medium whitespace-pre-line">${fillParts.map((part, i) => html`<span key=${i}>${part}${i < fillParts.length - 1 && html`<input ref=${i === 0 ? firstRef : null} className="blank-input mx-1" value=${values[i] || ""} disabled=${!!a} placeholder=${"hueco " + (i + 1)} aria-label=${"Hueco " + (i + 1)}
             onInput=${(e) => { const v = [...values]; v[i] = e.target.value; setValues(v); }} onKeyDown=${(e) => { if (e.key === "Enter" && !a) { e.preventDefault(); submitText(); } }} />`}</span>`)}</p>`
         : html`<p className="text-lg md:text-xl leading-relaxed font-medium whitespace-pre-line">${q.prompt}</p>`}
 
@@ -1874,7 +2044,7 @@ function QuizStep({ quiz, aiOk, onChoice, onSubmitText, onSelfEval, onAIValidate
       ${a && (q.type === "multiple_choice" || q.type === "true_false") && html`<div className=${"rounded-2xl p-4 pop " + (a.correct ? "verdict-ok" : "verdict-bad")} role="status">
         <div className="font-extrabold text-lg" style=${{ color: a.correct ? "rgb(var(--ok))" : "rgb(var(--bad))", fontFamily: "var(--font-display)" }}>${a.correct ? "✓ ¡Correcto!" : "✗ Incorrecto"}</div>
         ${!a.correct && html`<p className="mt-1"><b>Respuesta correcta:</b> ${q.type === "true_false" ? (q.answerBool ? "Verdadero" : "Falso") : `${LETTERS[q.answerIndex]}) ${q.options[q.answerIndex]}`}</p>`}
-        <p className="mt-1 text-[15px]" style=${{ color: "rgb(var(--muted))" }}>${q.explanation}</p>
+        <p className="mt-1 text-[15px] whitespace-pre-line" style=${{ color: "rgb(var(--muted))" }}>${q.explanation}</p>
       </div>`}
 
       ${a?.submitted && html`<div className="official rounded-2xl p-4 flex flex-col gap-3 pop">
@@ -1996,7 +2166,9 @@ const newSession = () => ({ id: uid(), title: "Nueva sesión de estudio", titleE
 
 function App() {
   const [caps, setCaps] = useState({ ready: false, sample: null, db: null, user: null, me: null, uid: null, imgMax: 0 });
-  const [auth, setAuth] = useState(() => pref.get("smai:auth"));
+  // Dentro de Claude la entrada la decide la cuenta del visitante (ClaudeGate), no un acceso guardado.
+  const [auth, setAuth] = useState(() => (IN_CLAUDE ? null : pref.get("smai:auth")));
+  const autoEntered = useRef(false);
   const [theme, setTheme] = useState(() => pref.get("smai:theme", "system"));
   const [store, setStore] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -2041,6 +2213,17 @@ function App() {
     if (theme === "system") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", theme);
     pref.set("smai:theme", theme);
   }, [theme]);
+
+  // Dentro de Claude: con la cuenta disponible se entra directamente, en modo Claude y con el historial en la nube.
+  const enterClaude = () => {
+    const a = caps.db && caps.uid ? { mode: "account", nick: caps.me?.name || "" } : { mode: "guest", nick: caps.me?.name || "" };
+    setLoginNotice(null); setEngine("claude"); pref.set("smai:engine", "claude"); setAuth(a);
+  };
+  useEffect(() => {
+    if (!IN_CLAUDE || !caps.ready || auth || autoEntered.current || !(caps.sample || caps.me)) return;
+    autoEntered.current = true;
+    enterClaude();
+  }, [caps.ready]);
 
   // Abre el almacén según el modo de acceso elegido.
   useEffect(() => {
@@ -2209,7 +2392,9 @@ function App() {
   const onRetry = () => { updQuiz((q) => ({ ...q, attempts: q.finishedAt ? [...q.attempts, { pct: q.pct, at: q.finishedAt }] : q.attempts, answers: {}, current: 0, finishedAt: null, pct: 0, questions: shuffle(q.questions) })); mutate((s) => ({ ...s, step: "quiz" })); };
 
   // ------------------------------------------------------------------ render
-  if (!auth) return html`<${LoginScreen} caps=${caps} notice=${loginNotice} onChoose=${(a) => { pref.set("smai:auth", a); setLoginNotice(null); if (a.via === "gemini") setEngine("gemini"); setAuth(a); }} />`;
+  if (!auth) return IN_CLAUDE
+    ? html`<${ClaudeGate} caps=${caps} notice=${loginNotice} onEnter=${enterClaude} />`
+    : html`<${LoginScreen} notice=${loginNotice} onChoose=${(a) => { pref.set("smai:auth", a); setLoginNotice(null); setAuth(a); }} />`;
   if (!current) return html`<div className="h-full grid place-items-center"><span className="flex items-center gap-3 font-bold"><${Spinner} /> Cargando tu historial…</span></div>`;
 
   const readyCount = current.files.filter((f) => f.status === "ready").length;
